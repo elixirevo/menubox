@@ -2,7 +2,7 @@ import AppKit
 
 enum StatusIconFactory {
     static func boxIcon() -> NSImage {
-        if let image = NSImage(systemSymbolName: "shippingbox", accessibilityDescription: "Status Box") {
+        if let image = NSImage(systemSymbolName: "shippingbox", accessibilityDescription: "MenuBox") {
             return horizontallyFlippedTemplateImage(image)
         }
 

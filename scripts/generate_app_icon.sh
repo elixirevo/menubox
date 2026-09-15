@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SOURCE_ICON="$ROOT_DIR/icon.png"
-ICONSET_DIR="$ROOT_DIR/Resources/StatusBox.iconset"
-ICNS_PATH="$ROOT_DIR/Resources/StatusBox.icns"
+ICONSET_DIR="$ROOT_DIR/Resources/MenuBox.iconset"
+ICNS_PATH="$ROOT_DIR/Resources/MenuBox.icns"
 MODULE_CACHE_DIR="$ROOT_DIR/.build/module-cache"
 
 if [[ ! -f "$SOURCE_ICON" ]]; then

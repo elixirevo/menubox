@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="${APP_NAME:-StatusBox}"
+APP_NAME="${APP_NAME:-MenuBox}"
 APP_VERSION="${APP_VERSION:-1.1.0}"
-GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-elixirevo/statusbox}"
+GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-elixirevo/menubox}"
 RELEASE_TAG="${RELEASE_TAG:-}"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 APPCAST_ARCHIVE_DIR="${APPCAST_ARCHIVE_DIR:-$DIST_DIR/appcast}"

@@ -17,20 +17,20 @@ final class OverlayManager {
         for screen in NSScreen.screens {
             let policy = store.policy(for: screen)
             guard policy.mode != .disabled else {
-                windows[screen.statusBoxDisplayId]?.orderOut(nil)
+                windows[screen.menuBoxDisplayId]?.orderOut(nil)
                 continue
             }
 
             guard let range = store.range(for: screen) else {
-                windows[screen.statusBoxDisplayId]?.orderOut(nil)
+                windows[screen.menuBoxDisplayId]?.orderOut(nil)
                 continue
             }
 
             let rect = MenuBarGeometry.rect(for: range, on: screen)
             guard rect.width > 4 else { continue }
 
-            let panel = windows[screen.statusBoxDisplayId] ?? makePanel()
-            windows[screen.statusBoxDisplayId] = panel
+            let panel = windows[screen.menuBoxDisplayId] ?? makePanel()
+            windows[screen.menuBoxDisplayId] = panel
             panel.setFrame(rect, display: true)
             panel.contentView?.frame = NSRect(origin: .zero, size: rect.size)
             panel.orderFrontRegardless()

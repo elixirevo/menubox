@@ -298,7 +298,7 @@ struct AppSettings: Codable, Equatable {
 }
 
 extension NSScreen {
-    var statusBoxDisplayId: String {
+    var menuBoxDisplayId: String {
         if let number = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
             return number.stringValue
         }

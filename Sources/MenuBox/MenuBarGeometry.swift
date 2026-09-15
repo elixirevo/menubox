@@ -34,7 +34,7 @@ enum MenuBarGeometry {
         let right = menu.maxX - 86
         let left = max(menu.minX + 40, right - 280)
         return HiddenRange(
-            displayId: screen.statusBoxDisplayId,
+            displayId: screen.menuBoxDisplayId,
             leftX: left,
             rightX: right,
             updatedAt: Date()
@@ -46,7 +46,7 @@ enum MenuBarGeometry {
     }
 
     static func screen(displayId: String) -> NSScreen? {
-        NSScreen.screens.first { $0.statusBoxDisplayId == displayId }
+        NSScreen.screens.first { $0.menuBoxDisplayId == displayId }
     }
 
     static func clamp(_ rect: NSRect, to visibleFrame: NSRect) -> NSRect {

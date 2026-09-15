@@ -1,17 +1,17 @@
-# Status Box 📦
+# MenuBox 📦
 
 ![Platform](https://img.shields.io/badge/Platform-macOS-lightgrey.svg)
 ![Swift](https://img.shields.io/badge/Swift-5.0-orange.svg)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
-<img src="./icon.png" alt="Status Box Icon" width="160" />
+<img src="./icon.png" alt="MenuBox Icon" width="160" />
 
-**Status Box** is a lightweight, native macOS menu bar utility that keeps your crowded status bar under control. Place the tape marker after the icons you want to hide, then use the box icon or shortcuts to hide, reveal, or open those menu bar apps from a compact floating Box UI.
+**MenuBox** is a lightweight, native macOS menu bar utility that keeps your crowded status bar under control. Place the tape marker after the icons you want to hide, then use the box icon or shortcuts to hide, reveal, or open those menu bar apps from a compact floating Box UI.
 
 ## ✨ Features
 
 * **Menu Bar Icon Hiding:** Hide status bar icons to the left of the tape marker without quitting the underlying apps.
-* **Tape Marker Workflow:** Use the tape icon as the boundary that decides which menu bar icons belong in Status Box.
+* **Tape Marker Workflow:** Use the tape icon as the boundary that decides which menu bar icons belong in MenuBox.
 * **Compact Box UI:** Open a floating macOS glass-style Box UI that shows hidden menu bar apps as icons.
 * **App Window Activation:** Left-click an app icon in Box UI to bring that app's window forward when supported.
 * **Native Menu Access:** Right-click an app icon in Box UI to open its native `NSMenu` when the app exposes one.
@@ -20,7 +20,7 @@
 * **Configurable Icon Grid:** Choose how many Box UI icons appear per row.
 * **Optional Box UI Alerts:** Turn Box UI alert text on or off. When alerts are off, the Box UI trims its lower spacing.
 * **Configurable Shortcuts:** Change or disable global shortcuts from Settings.
-* **Launch at Login:** Start Status Box automatically when you sign in.
+* **Launch at Login:** Start MenuBox automatically when you sign in.
 * **Lightweight & Native:** Built with Swift and AppKit. No Electron.
 
 ## ⌨️ Shortcuts
@@ -32,11 +32,11 @@
 
 *You can change shortcuts from Settings > General > Shortcuts.*
 *You can disable all shortcuts with Settings > General > Shortcuts > Enable shortcuts.*
-*If a shortcut conflicts with another app, choose a less common combination or disable Status Box shortcuts.*
+*If a shortcut conflicts with another app, choose a less common combination or disable MenuBox shortcuts.*
 
 ## 🚀 Installation & Build
 
-Status Box is built with Swift Package Manager and a small app-bundle build script.
+MenuBox is built with Swift Package Manager and a small app-bundle build script.
 
 ### Install via Homebrew
 
@@ -44,13 +44,13 @@ Once a release is published and the cask is added to `elixirevo/tap`, install wi
 
 ```bash
 brew tap elixirevo/tap
-brew install --cask status-box
+brew install --cask menubox
 ```
 
 If you already tapped `elixirevo/tap`, this also works:
 
 ```bash
-brew install --cask status-box
+brew install --cask menubox
 ```
 
 ### Prerequisites
@@ -63,8 +63,8 @@ brew install --cask status-box
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/elixirevo/statusbox.git
-   cd status-box
+   git clone https://github.com/elixirevo/menubox.git
+   cd menubox
    ```
 
 2. Build the Swift executable:
@@ -76,78 +76,82 @@ brew install --cask status-box
 3. Build the macOS app bundle:
 
    ```bash
-   ./scripts/build_app.sh
+   ./scripts/build_app.sh arm64 # Use x86_64 for Intel Macs.
    ```
 
 4. The built application will be located at:
 
    ```text
-   dist/StatusBox.app
+   dist/MenuBox.app
    ```
 
 5. Move it to your Applications folder:
 
    ```bash
-   mv dist/StatusBox.app /Applications/
+   mv dist/MenuBox.app /Applications/
    ```
 
-### Build a Universal DMG
+### Build DMGs
 
-Build a universal app (`arm64 + x86_64`) and package it as a DMG:
+Build separate app bundles and DMGs for Apple Silicon and Intel:
 
 ```bash
-./scripts/build_dmg.sh
+./scripts/build_dmg.sh arm64
+./scripts/build_dmg.sh x86_64
 ```
 
 This creates:
 
 ```text
-dist/StatusBox-1.0.0-universal.dmg
+dist/MenuBox-1.1.0-arm64.dmg
+dist/MenuBox-1.1.0-x86_64.dmg
 ```
 
 You can override release metadata when needed:
 
 ```bash
-VERSION=1.0.0 BUILD=1 ./scripts/build_dmg.sh
+APP_VERSION=1.1.0 APP_BUILD=111 ./scripts/build_dmg.sh arm64
 ```
 
-The script also prints the SHA-256 checksum.
+Calculate the SHA-256 checksums with `shasum -a 256 dist/MenuBox-*.dmg`.
 
 ### Prepare a Homebrew Release
 
 Before publishing the Homebrew cask:
 
-1. Upload `dist/StatusBox-1.0.0-universal.dmg` to the GitHub release `v1.0.0`.
-2. Copy `homebrew/Casks/status-box.rb` into the `elixirevo/homebrew-tap` repository.
-3. Replace `REPLACE_WITH_RELEASE_SHA256` with the printed checksum.
+1. Upload both `dist/MenuBox-1.1.0-arm64.dmg` and `dist/MenuBox-1.1.0-x86_64.dmg` to the GitHub release `v1.1.0` in `elixirevo/menubox`.
+2. Copy `homebrew/Casks/menubox.rb` into the `elixirevo/homebrew-tap` repository.
+3. Replace the two `REPLACE_WITH_*_RELEASE_SHA256` placeholders with the corresponding DMG checksums.
 4. Update the cask `version` when releasing a new app version.
 
 ## 🔒 Permissions
 
-Status Box requires:
+MenuBox requires:
 
 1. **Accessibility:** Required to discover menu bar status items and open supported native menus from Box UI.
 
-If Accessibility permission does not apply after rebuilding the app, remove the old Status Box entry from System Settings > Privacy & Security > Accessibility, then add `dist/StatusBox.app` again.
+If Accessibility permission does not apply after rebuilding the app, remove the old MenuBox entry from System Settings > Privacy & Security > Accessibility, then add `dist/MenuBox.app` again.
 
-*Note: Status Box works locally on your Mac. It does not send menu bar data or app information over the network.*
+When upgrading from the former app name, MenuBox imports saved app settings and menu bar positions on first launch. Its bundle identifier is now `com.elixirevo.MenuBox`; re-enable Accessibility, Screen Recording (if used), and Launch at Login for the renamed app as needed.
+
+*Note: MenuBox works locally on your Mac. It does not send menu bar data or app information over the network.*
 
 ## 🧭 Usage
 
-1. Launch Status Box.
+1. Launch MenuBox.
 2. Move the tape icon with macOS Command-drag so it sits to the right of the menu bar icons you want to hide.
 3. Click the box icon or press `Option + B` to hide or show those icons.
 4. Right-click the box icon or press `Command + B` to open Box UI.
 5. In Box UI:
    * Left-click an app icon to open its app window when supported.
    * Right-click an app icon to open its native menu when supported.
-6. Right-click the tape icon to open Settings or quit Status Box.
+6. Right-click the tape icon to open Settings or quit MenuBox.
 
 ## ⚠️ Limitations
 
-macOS does not provide a public API for taking ownership of third-party menu bar icons. Status Box uses the same general hiding approach as menu bar spacer utilities: it moves the tape marker to push selected icons out of the visible menu bar area.
+macOS does not provide a public API for taking ownership of third-party menu bar icons. MenuBox uses the same general hiding approach as menu bar spacer utilities: it moves the tape marker to push selected icons out of the visible menu bar area.
 
-Box UI support depends on what each app exposes through Accessibility and native menu APIs. Some apps show a window, some expose an `NSMenu`, and some do neither in a way Status Box can safely control.
+Box UI support depends on what each app exposes through Accessibility and native menu APIs. Some apps show a window, some expose an `NSMenu`, and some do neither in a way MenuBox can safely control.
 
 ## 🛠 Contributing
 

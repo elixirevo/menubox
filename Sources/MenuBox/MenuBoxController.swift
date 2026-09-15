@@ -28,8 +28,8 @@ private enum ApplicationActivationTiming {
     static let windowCheckDelays: [TimeInterval] = [0.08, 0.22, 0.4]
 }
 
-private enum StatusBoxHotKey {
-    static let signature: OSType = 0x53544258
+private enum MenuBoxHotKey {
+    static let signature: OSType = 0x4D4E4258 // MNBX
     static let menuBarIconID: UInt32 = 1
     static let boxUIID: UInt32 = 2
 }
@@ -39,7 +39,7 @@ private struct ApplicationWindowActivationResult {
     let didRaiseWindow: Bool
 }
 
-private func statusBoxHotKeyHandler(
+private func menuBoxHotKeyHandler(
     _ nextHandler: EventHandlerCallRef?,
     _ eventRef: EventRef?,
     _ userData: UnsafeMutableRawPointer?
@@ -56,18 +56,18 @@ private func statusBoxHotKeyHandler(
         nil,
         &hotKeyID
     )
-    guard status == noErr, hotKeyID.signature == StatusBoxHotKey.signature else {
+    guard status == noErr, hotKeyID.signature == MenuBoxHotKey.signature else {
         return status
     }
 
-    let controller = Unmanaged<StatusBoxController>.fromOpaque(userData).takeUnretainedValue()
+    let controller = Unmanaged<MenuBoxController>.fromOpaque(userData).takeUnretainedValue()
     DispatchQueue.main.async {
         controller.handleKeyboardShortcut(id: hotKeyID.id)
     }
     return noErr
 }
 
-final class StatusBoxController: NSObject {
+final class MenuBoxController: NSObject {
     private let checkForUpdates: (() -> Void)?
     private let store = SettingsStore()
     private lazy var overlayManager = OverlayManager(store: store)
@@ -160,12 +160,12 @@ final class StatusBoxController: NSObject {
 
     private func configureMainStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: StatusItemLength.shown)
-        item.autosaveName = "com.elixirevo.StatusBox.main"
+        item.autosaveName = "com.elixirevo.MenuBox.main"
         item.length = StatusItemLength.shown
         if let button = item.button {
             button.image = StatusIconFactory.boxIcon()
             button.title = ""
-            button.toolTip = "Status Box"
+            button.toolTip = "MenuBox"
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -175,13 +175,13 @@ final class StatusBoxController: NSObject {
 
     private func configureTapeStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: StatusItemLength.shown)
-        item.autosaveName = "com.elixirevo.StatusBox.tape"
+        item.autosaveName = "com.elixirevo.MenuBox.tape"
         item.length = StatusItemLength.shown
         if let button = item.button {
             button.image = StatusIconFactory.tapeIcon()
             button.title = ""
             button.imagePosition = .imageOnly
-            button.toolTip = "Status Box marker: Command-drag to move, right-click to open menu"
+            button.toolTip = "MenuBox marker: Command-drag to move, right-click to open menu"
             button.target = self
             button.action = #selector(tapeItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -243,9 +243,9 @@ final class StatusBoxController: NSObject {
         guard store.settings.shortcutsEnabled else { return }
 
         switch id {
-        case StatusBoxHotKey.menuBarIconID:
+        case MenuBoxHotKey.menuBarIconID:
             toggleHiddenIcons()
-        case StatusBoxHotKey.boxUIID:
+        case MenuBoxHotKey.boxUIID:
             toggleHiddenIconsBox()
         default:
             break
@@ -317,14 +317,14 @@ final class StatusBoxController: NSObject {
         )
         let status = InstallEventHandler(
             GetApplicationEventTarget(),
-            statusBoxHotKeyHandler,
+            menuBoxHotKeyHandler,
             1,
             &eventType,
             Unmanaged.passUnretained(self).toOpaque(),
             &hotKeyEventHandler
         )
         if status != noErr {
-            NSLog("[StatusBox] Failed to install hotkey handler: %d", status)
+            NSLog("[MenuBox] Failed to install hotkey handler: %d", status)
         }
         refreshKeyboardShortcuts()
     }
@@ -342,15 +342,15 @@ final class StatusBoxController: NSObject {
 
         menuBarIconHotKey = registerKeyboardShortcut(
             menuBarShortcut,
-            id: StatusBoxHotKey.menuBarIconID
+            id: MenuBoxHotKey.menuBarIconID
         )
 
         if boxUIShortcut == menuBarShortcut {
-            NSLog("[StatusBox] Box UI shortcut matches menu bar shortcut; skipping duplicate registration")
+            NSLog("[MenuBox] Box UI shortcut matches menu bar shortcut; skipping duplicate registration")
         } else {
             boxUIHotKey = registerKeyboardShortcut(
                 boxUIShortcut,
-                id: StatusBoxHotKey.boxUIID
+                id: MenuBoxHotKey.boxUIID
             )
         }
     }
@@ -369,7 +369,7 @@ final class StatusBoxController: NSObject {
         id: UInt32
     ) -> EventHotKeyRef? {
         var hotKeyRef: EventHotKeyRef?
-        let hotKeyID = EventHotKeyID(signature: StatusBoxHotKey.signature, id: id)
+        let hotKeyID = EventHotKeyID(signature: MenuBoxHotKey.signature, id: id)
         let status = RegisterEventHotKey(
             shortcut.keyCode,
             carbonModifierFlags(for: shortcut.modifiers),
@@ -379,7 +379,7 @@ final class StatusBoxController: NSObject {
             &hotKeyRef
         )
         if status != noErr {
-            NSLog("[StatusBox] Failed to register shortcut %@: %d", shortcut.displayTitle, status)
+            NSLog("[MenuBox] Failed to register shortcut %@: %d", shortcut.displayTitle, status)
             return nil
         }
         return hotKeyRef
@@ -428,7 +428,7 @@ final class StatusBoxController: NSObject {
             menu.addItem(NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdatesMenuAction), keyEquivalent: ""))
         }
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit Status Box", action: #selector(quitMenuAction), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Quit MenuBox", action: #selector(quitMenuAction), keyEquivalent: "q"))
 
         for item in menu.items where item.target == nil {
             item.target = self
@@ -634,7 +634,7 @@ final class StatusBoxController: NSObject {
                     self.cachedProxyTargetsLoadedAt = Date()
                 }
                 NSLog(
-                    "[StatusBox] Proxy target cache refreshed %ld targets in %.1fms",
+                    "[MenuBox] Proxy target cache refreshed %ld targets in %.1fms",
                     targets.count,
                     Date().timeIntervalSince(startedAt) * 1000
                 )
@@ -807,15 +807,15 @@ final class StatusBoxController: NSObject {
                 let targetForClick = resolvedTarget ?? self.visibleFallbackTarget(for: click)
                 let point = targetForClick?.appKitClickPoint ?? click.appKitPoint
                 guard self.isVisibleMenuBarPoint(point) else {
-                    NSLog("[StatusBox] Proxy click target is not visible after reveal point=%@", NSStringFromPoint(point))
+                    NSLog("[MenuBox] Proxy click target is not visible after reveal point=%@", NSStringFromPoint(point))
                     self.boxWindowController.showStatus("Failed: Target not found")
                     return ClickForwarder.ForwardResult.failed
                 }
 
                 if let targetForClick {
-                    NSLog("[StatusBox] Forwarding native proxy click to target role=%@ title=%@ description=%@ point=%@", targetForClick.role, targetForClick.title, targetForClick.description, NSStringFromPoint(point))
+                    NSLog("[MenuBox] Forwarding native proxy click to target role=%@ title=%@ description=%@ point=%@", targetForClick.role, targetForClick.title, targetForClick.description, NSStringFromPoint(point))
                 } else {
-                    NSLog("[StatusBox] Forwarding native proxy click without AX target point=%@", NSStringFromPoint(point))
+                    NSLog("[MenuBox] Forwarding native proxy click without AX target point=%@", NSStringFromPoint(point))
                 }
 
                 let result = ClickForwarder.postClick(at: point, button: button, target: targetForClick)
@@ -918,7 +918,7 @@ final class StatusBoxController: NSObject {
 
     private func reopenApplicationBundle(_ app: NSRunningApplication, target: MenuBarProxyTarget) {
         guard let bundleURL = app.bundleURL else {
-            NSLog("[StatusBox] Failed to activate app without bundle URL: %@", target.displayName)
+            NSLog("[MenuBox] Failed to activate app without bundle URL: %@", target.displayName)
             markTargetApplicationUnsupported(target)
             return
         }
@@ -930,7 +930,7 @@ final class StatusBoxController: NSObject {
                 guard let self else { return }
 
                 if let error {
-                    NSLog("[StatusBox] Failed to reopen %@: %@", target.displayName, error.localizedDescription)
+                    NSLog("[MenuBox] Failed to reopen %@: %@", target.displayName, error.localizedDescription)
                     self.markTargetApplicationUnsupported(target)
                     return
                 }

@@ -2,10 +2,10 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="${APP_NAME:-StatusBox}"
+APP_NAME="${APP_NAME:-MenuBox}"
 PRODUCT_NAME="${PRODUCT_NAME:-$APP_NAME}"
 EXECUTABLE_NAME="${EXECUTABLE_NAME:-$APP_NAME}"
-BUNDLE_ID="${BUNDLE_ID:-com.elixirevo.StatusBox}"
+BUNDLE_ID="${BUNDLE_ID:-com.elixirevo.MenuBox}"
 APP_VERSION="${APP_VERSION:-1.1.0}"
 APP_BUILD="${APP_BUILD:-110}"
 MIN_MACOS="${MIN_MACOS:-13.0}"
@@ -84,9 +84,9 @@ if [[ -n "${RESOURCE_DIRS:-}" ]]; then
 fi
 
 if [[ -n "${ICON_ICNS:-}" ]]; then
-  cp "$ICON_ICNS" "$RESOURCES_DIR/StatusBox.icns"
+  cp "$ICON_ICNS" "$RESOURCES_DIR/MenuBox.icns"
 elif [[ -n "${ICONSET_DIR:-}" ]]; then
-  iconutil -c icns "$ICONSET_DIR" -o "$RESOURCES_DIR/StatusBox.icns"
+  iconutil -c icns "$ICONSET_DIR" -o "$RESOURCES_DIR/MenuBox.icns"
 elif [[ -n "${ICON_PNG:-}" ]]; then
   cp "$ICON_PNG" "$RESOURCES_DIR/AppIcon.png"
 fi

@@ -6,10 +6,11 @@ final class SettingsStore: ObservableObject {
     @Published private(set) var settings: AppSettings
 
     private let defaults: UserDefaults
-    private let key = "StatusBox.AppSettings.v3"
+    private let key = "MenuBox.AppSettings.v3"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        Self.migrateLegacySettings(in: defaults)
         if let data = defaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode(AppSettings.self, from: data) {
             var normalized = decoded
@@ -21,6 +22,27 @@ final class SettingsStore: ObservableObject {
             self.settings = defaults
         }
         refreshDisplays()
+    }
+
+    private static func migrateLegacySettings(in defaults: UserDefaults) {
+        guard defaults.object(forKey: "MenuBox.AppSettings.v3") == nil else { return }
+
+        // Keep the former identifiers only to import settings from existing installations.
+        let legacyDomain = defaults === UserDefaults.standard
+            ? defaults.persistentDomain(forName: "com.elixirevo.StatusBox") ?? [:]
+            : [:]
+        var keys = ["StatusBox.AppSettings.v3": "MenuBox.AppSettings.v3"]
+        for item in ["main", "tape"] {
+            for property in ["Preferred Position", "Visible"] {
+                keys["NSStatusItem \(property) com.elixirevo.StatusBox.\(item)"] =
+                    "NSStatusItem \(property) com.elixirevo.MenuBox.\(item)"
+            }
+        }
+        for (oldKey, newKey) in keys where defaults.object(forKey: newKey) == nil {
+            if let value = defaults.object(forKey: oldKey) ?? legacyDomain[oldKey] {
+                defaults.set(value, forKey: newKey)
+            }
+        }
     }
 
     func update(_ mutate: (inout AppSettings) -> Void) {
@@ -47,7 +69,7 @@ final class SettingsStore: ObservableObject {
 
     func policy(for screen: NSScreen) -> DisplayPolicy {
         DisplayPolicy(
-            displayId: screen.statusBoxDisplayId,
+            displayId: screen.menuBoxDisplayId,
             displayName: screen.localizedName,
             mode: .menuBar,
             lastSeenAt: Date()
@@ -55,7 +77,7 @@ final class SettingsStore: ObservableObject {
     }
 
     func range(for screen: NSScreen) -> HiddenRange? {
-        settings.hiddenRanges[screen.statusBoxDisplayId]
+        settings.hiddenRanges[screen.menuBoxDisplayId]
     }
 
     var hasAnyRange: Bool {

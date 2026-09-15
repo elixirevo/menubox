@@ -5,15 +5,15 @@
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>StatusBox</string>
+    <string>MenuBox</string>
     <key>CFBundleIdentifier</key>
-    <string>com.elixirevo.StatusBox</string>
+    <string>com.elixirevo.MenuBox</string>
     <key>CFBundleIconFile</key>
-    <string>StatusBox</string>
+    <string>MenuBox</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Status Box</string>
+    <string>MenuBox</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -27,11 +27,11 @@
     <key>NSHighResolutionCapable</key>
     <true/>
     <key>NSScreenCaptureUsageDescription</key>
-    <string>Status Box uses Screen Recording access to show hidden menu bar items in Box UI.</string>
+    <string>MenuBox uses Screen Recording access to show hidden menu bar items in Box UI.</string>
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUFeedURL</key>
-    <string>https://github.com/elixirevo/statusbox/releases/latest/download/appcast.xml</string>
+    <string>https://github.com/elixirevo/menubox/releases/latest/download/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string>WqbePVnRnb1iTrG97L2uwcc4FClbTWSRiEvmWpLtR2k=</string>
 </dict>

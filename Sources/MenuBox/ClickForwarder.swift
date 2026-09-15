@@ -50,25 +50,25 @@ enum ClickForwarder {
 
         if postMouseClick(at: quartzPoint, button: button) {
             if let target {
-                NSLog("[StatusBox] Forwarded proxy click with CGEvent target role=%@ title=%@ description=%@ pid=%d appKit=%@ quartz=%@ button=%ld", target.role, target.title, target.description, target.processIdentifier, NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
+                NSLog("[MenuBox] Forwarded proxy click with CGEvent target role=%@ title=%@ description=%@ pid=%d appKit=%@ quartz=%@ button=%ld", target.role, target.title, target.description, target.processIdentifier, NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
             } else {
-                NSLog("[StatusBox] Forwarded proxy click with CGEvent at appKit=%@ quartz=%@ button=%ld", NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
+                NSLog("[MenuBox] Forwarded proxy click with CGEvent at appKit=%@ quartz=%@ button=%ld", NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
             }
             return .mouseEvent
         }
 
         if let target,
            performAccessibilityAction(on: target.accessibilityElement, button: button, label: "live-target") {
-            NSLog("[StatusBox] Forwarded proxy click with Accessibility target role=%@ title=%@ description=%@ appKit=%@ quartz=%@ button=%ld", target.role, target.title, target.description, NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
+            NSLog("[MenuBox] Forwarded proxy click with Accessibility target role=%@ title=%@ description=%@ appKit=%@ quartz=%@ button=%ld", target.role, target.title, target.description, NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
             return .accessibility
         }
 
         if performAccessibilityAction(at: appKitPoint, button: button) {
-            NSLog("[StatusBox] Forwarded proxy click with Accessibility lookup at appKit=%@ quartz=%@ button=%ld", NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
+            NSLog("[MenuBox] Forwarded proxy click with Accessibility lookup at appKit=%@ quartz=%@ button=%ld", NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
             return .accessibility
         }
 
-        NSLog("[StatusBox] Proxy click forwarding failed at appKit=%@ quartz=%@ button=%ld", NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
+        NSLog("[MenuBox] Proxy click forwarding failed at appKit=%@ quartz=%@ button=%ld", NSStringFromPoint(appKitPoint), NSStringFromPoint(NSPoint(x: quartzPoint.x, y: quartzPoint.y)), buttonValue)
         return .failed
     }
 
@@ -76,11 +76,11 @@ enum ClickForwarder {
         let preferredActions = preferredProxyActions(from: item.actions)
         guard let element = item.accessibilityElement,
               performAccessibilityAction(on: element, preferredActions: preferredActions, label: "proxy-menu-item") else {
-            NSLog("[StatusBox] Proxy menu item failed title=%@ role=%@", item.title, item.role)
+            NSLog("[MenuBox] Proxy menu item failed title=%@ role=%@", item.title, item.role)
             return .failed
         }
 
-        NSLog("[StatusBox] Proxy menu item forwarded title=%@ role=%@", item.title, item.role)
+        NSLog("[MenuBox] Proxy menu item forwarded title=%@ role=%@", item.title, item.role)
         return .accessibility
     }
 
@@ -90,7 +90,7 @@ enum ClickForwarder {
     ) -> ForwardResult {
         let result = performProxyMenuItem(selection.item)
         if !result.didForward {
-            NSLog("[StatusBox] Proxy menu item selection failed without mouse fallback path=%@ target=%@", selection.path.joined(separator: " > "), target.displayName)
+            NSLog("[MenuBox] Proxy menu item selection failed without mouse fallback path=%@ target=%@", selection.path.joined(separator: " > "), target.displayName)
         }
         return result
     }
@@ -100,11 +100,11 @@ enum ClickForwarder {
         button: CGMouseButton
     ) -> ForwardResult {
         if performAccessibilityAction(on: target.accessibilityElement, button: button, label: "hidden-target-native-ui") {
-            NSLog("[StatusBox] Forwarded hidden status item with Accessibility only role=%@ title=%@ description=%@ pid=%d button=%ld", target.role, target.title, target.description, target.processIdentifier, Int(button.rawValue))
+            NSLog("[MenuBox] Forwarded hidden status item with Accessibility only role=%@ title=%@ description=%@ pid=%d button=%ld", target.role, target.title, target.description, target.processIdentifier, Int(button.rawValue))
             return .accessibility
         }
 
-        NSLog("[StatusBox] Hidden status item Accessibility-only action failed role=%@ title=%@ description=%@ pid=%d button=%ld", target.role, target.title, target.description, target.processIdentifier, Int(button.rawValue))
+        NSLog("[MenuBox] Hidden status item Accessibility-only action failed role=%@ title=%@ description=%@ pid=%d button=%ld", target.role, target.title, target.description, target.processIdentifier, Int(button.rawValue))
         return .failed
     }
 
@@ -175,7 +175,7 @@ enum ClickForwarder {
             )
 
             guard copyError == .success, let element else {
-                NSLog("[StatusBox] AX element lookup failed coordinate=%@ point=%@ error=%@", candidate.name, NSStringFromPoint(NSPoint(x: candidate.point.x, y: candidate.point.y)), String(describing: copyError))
+                NSLog("[MenuBox] AX element lookup failed coordinate=%@ point=%@ error=%@", candidate.name, NSStringFromPoint(NSPoint(x: candidate.point.x, y: candidate.point.y)), String(describing: copyError))
                 continue
             }
 
@@ -206,7 +206,7 @@ enum ClickForwarder {
             let role = stringAttribute(kAXRoleAttribute, from: element) ?? "unknown"
             let title = stringAttribute(kAXTitleAttribute, from: element) ?? ""
             let actions = actionNames(from: element)
-            NSLog("[StatusBox] AX element label=%@ role=%@ title=%@ actions=%@", label, role, title, actions.joined(separator: ","))
+            NSLog("[MenuBox] AX element label=%@ role=%@ title=%@ actions=%@", label, role, title, actions.joined(separator: ","))
 
             for action in preferredActions {
                 let actionName = action as String
@@ -214,7 +214,7 @@ enum ClickForwarder {
                     continue
                 }
                 let actionError = AXUIElementPerformAction(element, action)
-                NSLog("[StatusBox] AX action label=%@ action=%@ result=%@", label, actionName, String(describing: actionError))
+                NSLog("[MenuBox] AX action label=%@ action=%@ result=%@", label, actionName, String(describing: actionError))
                 if actionError == .success {
                     return true
                 }

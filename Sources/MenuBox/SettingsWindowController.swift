@@ -13,7 +13,7 @@ final class SettingsWindowController: NSWindowController {
         let view = SettingsView(store: store, actions: actions)
         let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
-        window.title = "Status Box Settings"
+        window.title = "MenuBox Settings"
         window.setContentSize(NSSize(width: 620, height: 520))
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.isReleasedWhenClosed = false
@@ -342,7 +342,7 @@ enum LaunchAtLoginManager {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            NSLog("StatusBox launch-at-login update failed: \(error.localizedDescription)")
+            NSLog("MenuBox launch-at-login update failed: \(error.localizedDescription)")
         }
     }
 }

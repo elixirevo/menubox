@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="${APP_NAME:-StatusBox}"
+APP_NAME="${APP_NAME:-MenuBox}"
 PRODUCT_NAME="${PRODUCT_NAME:-$APP_NAME}"
 APP_VERSION="${APP_VERSION:-1.1.0}"
 ARCH="${1:-${ARCH:-}}"
-VOL_NAME="${VOL_NAME:-Status Box}"
+VOL_NAME="${VOL_NAME:-MenuBox}"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
 APP_PATH="$DIST_DIR/$PRODUCT_NAME.app"
 DMG_PATH="$DIST_DIR/${APP_NAME}-${APP_VERSION}-${ARCH}.dmg"

@@ -249,7 +249,7 @@ enum MenuBarProxyScanner {
 
         let elapsedMilliseconds = (CFAbsoluteTimeGetCurrent() - startedAt) * 1000
         NSLog(
-            "[StatusBox] Status item scan loaded %ld targets from %ld apps marker=%@ in %.1fms",
+            "[MenuBox] Status item scan loaded %ld targets from %ld apps marker=%@ in %.1fms",
             targetsByKey.count,
             runningApplications.count,
             markerX.map { String(format: "%.1f", Double($0)) } ?? "all",
@@ -303,7 +303,7 @@ enum MenuBarProxyScanner {
         guard let items = bestProxyMenuItems(from: directMenuRoots(for: target)) else {
             return []
         }
-        NSLog("[StatusBox] Immediate proxy menu items=%ld target=%@", visibleItemCount(items), target.displayName)
+        NSLog("[MenuBox] Immediate proxy menu items=%ld target=%@", visibleItemCount(items), target.displayName)
         return items
     }
 
@@ -368,10 +368,10 @@ enum MenuBarProxyScanner {
         let screenProbeRoots = screenProbeMenuRoots(for: target)
         let strictItems = proxyMenuItems(for: target, screenProbeRoots: screenProbeRoots)
         if strictItems.contains(where: { !$0.isSeparator }) {
-            NSLog("[StatusBox] Proxy menu strict items=%ld target=%@", visibleItemCount(strictItems), target.displayName)
+            NSLog("[MenuBox] Proxy menu strict items=%ld target=%@", visibleItemCount(strictItems), target.displayName)
             return strictItems
         }
-        NSLog("[StatusBox] Proxy menu unsupported: no AXMenu target=%@", target.displayName)
+        NSLog("[MenuBox] Proxy menu unsupported: no AXMenu target=%@", target.displayName)
         return []
     }
 
@@ -685,9 +685,9 @@ enum MenuBarProxyScanner {
         }
 
         if !roots.isEmpty {
-            NSLog("[StatusBox] Screen-probed %ld AX menu roots from %ld windows target=%@", roots.count, windows.count, target.displayName)
+            NSLog("[MenuBox] Screen-probed %ld AX menu roots from %ld windows target=%@", roots.count, windows.count, target.displayName)
         } else {
-            NSLog("[StatusBox] Screen probe found %ld menu-like windows but no AX roots target=%@", windows.count, target.displayName)
+            NSLog("[MenuBox] Screen probe found %ld menu-like windows but no AX roots target=%@", windows.count, target.displayName)
         }
         return roots
     }
