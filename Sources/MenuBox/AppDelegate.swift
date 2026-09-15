@@ -6,6 +6,9 @@ enum MenuBoxApplication {
     private static let delegate = AppDelegate()
 
     static func main() {
+        if CommandLine.arguments.contains("--menubox-visibility-recovery") {
+            exit(NativeMenuBarRecovery.runHelper())
+        }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         app.delegate = delegate
@@ -22,14 +25,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        do { try NativeMenuBarRecovery.restore() }
+        catch { NSLog("[MenuBox] Menu bar recovery pending: %@", error.localizedDescription) }
+        if UserDefaults.standard.bool(forKey: "MenuBoxEnableVisibilityAccessProbe") {
+            MenuBarAccessDiagnostics.writeSnapshot()
+        }
         let controller = MenuBoxController(checkForUpdates: { [updaterController] in
             updaterController.checkForUpdates(nil)
         })
         self.controller = controller
         controller.start()
+        MenuBarVisibilityRoundTripProbe.runIfRequested()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MenuBarVisibilityRoundTripProbe.restorePending()
+        controller?.stop()
     }
 }
