@@ -29,6 +29,8 @@ final class BoxWindowController {
     private var activeProxyMenu: NSMenu?
     private let settingsStore: SettingsStore
     var onForwardedClick: ((MenuBarProxyClick, CGMouseButton) -> Void)?
+    var onClose: (() -> Void)?
+    private(set) var isMenuInteractionActive = false
 
     init(settingsStore: SettingsStore) {
         self.settingsStore = settingsStore
@@ -36,6 +38,16 @@ final class BoxWindowController {
 
     var isShowing: Bool {
         panel?.isVisible == true
+    }
+
+    func beginMenuInteraction() {
+        isMenuInteractionActive = true
+        suppressDismissUntil = .distantFuture
+    }
+
+    func endMenuInteraction() {
+        isMenuInteractionActive = false
+        suppressDismissUntil = nil
     }
 
     func show(
@@ -241,6 +253,8 @@ final class BoxWindowController {
         }
         panel?.orderOut(nil)
         panel = nil
+        endMenuInteraction()
+        onClose?()
     }
 
     private func installDismissMonitors(panel: NSPanel) {
@@ -402,9 +416,11 @@ final class FloatingPanel: NSPanel {
             backing: .buffered,
             defer: false
         )
+        title = "MenuBox"
+        becomesKeyOnlyIfNeeded = true
     }
 
-    override var canBecomeKey: Bool { false }
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }
 
@@ -475,7 +491,33 @@ final class IconStripView: NSView {
     var sourcePointSize: NSSize = .zero
     var placeholderText = "Unable to capture the menu bar image."
     var rangeRect: NSRect = .zero
-    var proxyTargets: [MenuBarProxyTarget] = []
+    var proxyTargets: [MenuBarProxyTarget] = [] {
+        didSet { accessibleIcons = nil }
+    }
+    private var accessibleIcons: [BoxIconAccessibilityElement]?
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .group }
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityLabel() -> String? { "MenuBox apps" }
+    override func accessibilityChildren() -> [Any]? {
+        guard usesTargetGrid, let window else { return super.accessibilityChildren() }
+        if accessibleIcons == nil {
+            accessibleIcons = targetCells().map { cell in
+                let element = BoxIconAccessibilityElement()
+                element.setAccessibilityParent(self)
+                element.setAccessibilityRole(.button)
+                element.setAccessibilityEnabled(true)
+                element.setAccessibilityLabel(cell.target.displayName)
+                element.setAccessibilityFrame(window.convertToScreen(convert(cell.rect, to: nil)))
+                element.onClick = { [weak self] button in
+                    guard let self, let click = self.proxyClick(at: NSPoint(x: cell.rect.midX, y: cell.rect.midY)) else { return }
+                    self.onClick?(click, button)
+                }
+                return element
+            }
+        }
+        return accessibleIcons
+    }
     var onClick: ((MenuBarProxyClick, CGMouseButton) -> Void)?
     var showsStatusText = true
     var statusText: String?
@@ -869,4 +911,25 @@ final class IconStripView: NSView {
         placeholderText.draw(in: bounds.insetBy(dx: 12, dy: bounds.height / 2 - 8), withAttributes: attrs)
     }
 
+}
+
+private final class BoxIconAccessibilityElement: NSAccessibilityElement {
+    var onClick: ((CGMouseButton) -> Void)?
+
+    override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
+        if selector == #selector(accessibilityPerformPress) || selector == #selector(accessibilityPerformShowMenu) {
+            return true
+        }
+        return super.isAccessibilitySelectorAllowed(selector)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onClick?(.left)
+        return onClick != nil
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        onClick?(.right)
+        return onClick != nil
+    }
 }

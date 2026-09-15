@@ -14,7 +14,7 @@
 * **Tape Marker Workflow:** Use the tape icon as the boundary that decides which menu bar icons belong in MenuBox.
 * **Compact Box UI:** Open a floating macOS glass-style Box UI that shows hidden menu bar apps as icons.
 * **App Window Activation:** Left-click an app icon in Box UI to bring that app's window forward when supported.
-* **Native Menu Access:** Right-click an app icon in Box UI to open its native `NSMenu` when the app exposes one.
+* **Native Menu Access:** Right-click an app icon in Box UI to request its real status-item menu, including menus created on click. MenuBox reads the generated menu through Accessibility and displays it beside the icon.
 * **Unsupported App Feedback:** Apps that cannot open a window or expose a usable native menu are shown as unsupported.
 * **Auto-Hide:** Automatically hide menu bar icons again after a configurable delay.
 * **Configurable Icon Grid:** Choose how many Box UI icons appear per row.
@@ -152,6 +152,8 @@ When upgrading from the former app name, MenuBox imports saved app settings and 
 macOS does not provide a public API for taking ownership of third-party menu bar icons. MenuBox uses the same general hiding approach as menu bar spacer utilities: it moves the tape marker to push selected icons out of the visible menu bar area.
 
 Box UI support depends on what each app exposes through Accessibility and native menu APIs. Some apps show a window, some expose an `NSMenu`, and some do neither in a way MenuBox can safely control.
+
+Hidden-menu forwarding leaves the spacer and pointer in place. It uses WindowServer event routing and a runtime-resolved private API for window-local event coordinates; compatibility can change with macOS updates. MenuBox reports `Menu unavailable` if the app does not produce a readable menu. See [native menu behavior and verification](docs/box-native-menus.md).
 
 ## 🛠 Contributing
 

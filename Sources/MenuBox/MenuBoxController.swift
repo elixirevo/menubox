@@ -79,6 +79,7 @@ final class MenuBoxController: NSObject {
     private var tapeItem: NSStatusItem?
     private var autoHideTimer: Timer?
     private var captureTask: Task<Void, Never>?
+    private var hiddenMenuTask: Task<Void, Never>?
     private var isHidden = false
     private var settingsCancellable: AnyCancellable?
     private var hotKeyEventHandler: EventHandlerRef?
@@ -99,6 +100,7 @@ final class MenuBoxController: NSObject {
     }
 
     deinit {
+        hiddenMenuTask?.cancel()
         proxyTargetScanTask?.cancel()
         proxyTargetWarmupWorkItem?.cancel()
         proxyTargetRefreshWorkItems.forEach { $0.cancel() }
@@ -107,8 +109,12 @@ final class MenuBoxController: NSObject {
     }
 
     func start() {
+        NSLog("[MenuBox] Accessibility trusted=%d", ClickForwarder.accessibilityTrusted)
         boxWindowController.onForwardedClick = { [weak self] click, button in
             self?.handleBoxIconClick(click: click, button: button)
+        }
+        boxWindowController.onClose = { [weak self] in
+            self?.hiddenMenuTask?.cancel()
         }
 
         configureMainStatusItem()
@@ -649,6 +655,7 @@ final class MenuBoxController: NSObject {
 
                 guard updateVisibleBox,
                       self.boxWindowController.isShowing,
+                      !self.boxWindowController.isMenuInteractionActive,
                       let resolvedAnchorFrame,
                       let resolvedTapeFrame,
                       let resolvedScreen = MenuBarGeometry.screen(
@@ -764,18 +771,7 @@ final class MenuBoxController: NSObject {
                 return
             }
 
-            let liveTarget = MenuBarProxyScanner.refreshedTarget(from: target) ?? target
-            let immediateItems = MenuBarProxyScanner.immediateProxyMenuItems(for: liveTarget)
-            if showProxyMenuIfAvailable(
-                for: liveTarget,
-                items: immediateItems,
-                anchorPoint: click.menuAnchorPoint
-            ) {
-                return
-            }
-
-            boxWindowController.showStatus("Unsupported app: \(liveTarget.displayName)")
-            scheduleAutoHideIfNeeded(minimumDelay: 15)
+            openHiddenStatusItemMenu(for: target, anchorPoint: click.menuAnchorPoint)
             return
         }
 
@@ -831,6 +827,90 @@ final class MenuBoxController: NSObject {
                     self.scheduleAutoHideIfNeeded(minimumDelay: 30)
                 }
             }
+        }
+    }
+
+    private func openHiddenStatusItemMenu(for target: MenuBarProxyTarget, anchorPoint: NSPoint?) {
+        let previous = hiddenMenuTask
+        previous?.cancel()
+        boxWindowController.beginMenuInteraction()
+        boxWindowController.showStatus("Opening menu: \(target.displayName)")
+        hiddenMenuTask = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            self.boxWindowController.beginMenuInteraction()
+            let liveTarget = MenuBarProxyScanner.refreshedTarget(from: target) ?? target
+            if let opened = await self.requestHiddenStatusItemMenu(for: liveTarget) {
+                // The native popup is anchored to an offscreen icon. Display its
+                // live contents in Box UI, then reacquire the native item at selection.
+                opened.cancel()
+                guard !Task.isCancelled, self.boxWindowController.isShowing else { return }
+                self.boxWindowController.showProxyMenu(
+                    for: liveTarget, items: opened.items, anchorPoint: anchorPoint
+                ) { [weak self] selection in
+                    self?.selectHiddenStatusItemMenu(selection, target: liveTarget)
+                }
+            } else if !Task.isCancelled, self.boxWindowController.isShowing {
+                let items = MenuBarProxyScanner.immediateProxyMenuItems(for: liveTarget)
+                if !self.showProxyMenuIfAvailable(for: liveTarget, items: items, anchorPoint: anchorPoint) {
+                    self.boxWindowController.showStatus("Menu unavailable: \(liveTarget.displayName)")
+                }
+            }
+            if !Task.isCancelled {
+                self.boxWindowController.endMenuInteraction()
+                self.scheduleAutoHideIfNeeded(minimumDelay: 15)
+            }
+        }
+    }
+
+    @MainActor
+    private func requestHiddenStatusItemMenu(for target: MenuBarProxyTarget) async -> OpenedStatusItemMenu? {
+        guard await StatusItemEventRouter.postRightClick(to: target) else { return nil }
+        for _ in 0..<16 {
+            if let menu = MenuBarProxyScanner.openedStatusItemMenu(for: target) {
+                if Task.isCancelled { menu.cancel(); return nil }
+                return menu
+            }
+            // A posted event cannot be recalled. Keep watching briefly after
+            // cancellation so a late popup is closed before the next request.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    continuation.resume()
+                }
+            }
+        }
+        return nil
+    }
+
+    private func selectHiddenStatusItemMenu(_ selection: MenuBarProxyMenuSelection, target: MenuBarProxyTarget) {
+        let previous = hiddenMenuTask
+        previous?.cancel()
+        boxWindowController.beginMenuInteraction()
+        hiddenMenuTask = Task { @MainActor [weak self] in
+            await previous?.value
+            guard let self else { return }
+            guard !Task.isCancelled else { return }
+            self.boxWindowController.beginMenuInteraction()
+            defer { self.boxWindowController.endMenuInteraction() }
+            guard let opened = await self.requestHiddenStatusItemMenu(for: target) else {
+                self.boxWindowController.showStatus("Menu unavailable: \(target.displayName)")
+                self.scheduleAutoHideIfNeeded(minimumDelay: 15)
+                return
+            }
+            defer { opened.cancel() }
+            guard !Task.isCancelled else { return }
+            guard let item = MenuBarProxyScanner.currentMenuItem(matching: selection, in: opened.items) else {
+                self.boxWindowController.showStatus("Menu changed: Open it again")
+                self.scheduleAutoHideIfNeeded(minimumDelay: 15)
+                return
+            }
+            let result = ClickForwarder.performProxyMenuItem(item)
+            self.boxWindowController.showStatus("\(result.title): \(item.title)")
+            if result.didForward, self.isQuitMenuSelection(selection) {
+                self.removeProxyTargets(processIdentifier: target.processIdentifier)
+            }
+            self.scheduleAutoHideIfNeeded(minimumDelay: 15)
         }
     }
 

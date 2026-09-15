@@ -120,6 +120,18 @@ struct MenuBarProxyMenuSelection: @unchecked Sendable {
     let identityPath: [String]
 }
 
+struct OpenedStatusItemMenu {
+    let items: [MenuBarProxyMenuItem]
+    let roots: [AXUIElement]
+
+    func cancel() {
+        for root in roots {
+            AXUIElementSetMessagingTimeout(root, 0.2)
+            _ = AXUIElementPerformAction(root, kAXCancelAction as CFString)
+        }
+    }
+}
+
 enum MenuBarProxyScanner {
     struct RunningApplicationInfo: @unchecked Sendable {
         let processIdentifier: pid_t
@@ -305,6 +317,37 @@ enum MenuBarProxyScanner {
         }
         NSLog("[MenuBox] Immediate proxy menu items=%ld target=%@", visibleItemCount(items), target.displayName)
         return items
+    }
+
+    /// Only menus opened by the status item, never the application's main menu bar.
+    static func openedStatusItemMenu(for target: MenuBarProxyTarget) -> OpenedStatusItemMenu? {
+        var roots = directMenuRoots(for: target)
+        let app = AXUIElementCreateApplication(target.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 0.15)
+        for attribute in [kAXChildrenAttribute as String, kAXFocusedUIElementAttribute as String] {
+            for element in accessibilityElements(attribute: attribute, from: app) {
+                roots.append(contentsOf: elementChain(startingAt: element)
+                    .filter { stringAttribute(kAXRoleAttribute, from: $0) == "AXMenu" })
+            }
+        }
+        roots = uniqueElements(roots).filter { appKitFrame(for: $0) != nil }
+        guard let items = bestProxyMenuItems(from: roots) else { return nil }
+        return OpenedStatusItemMenu(items: items, roots: roots)
+    }
+
+    static func currentMenuItem(
+        matching selection: MenuBarProxyMenuSelection,
+        in items: [MenuBarProxyMenuItem]
+    ) -> MenuBarProxyMenuItem? {
+        func uniqueItem(_ path: ArraySlice<String>, in items: [MenuBarProxyMenuItem]) -> MenuBarProxyMenuItem? {
+            guard let title = path.first else { return nil }
+            let matches = items.filter { !$0.isSeparator && normalizedMenuTitle($0.title) == normalizedMenuTitle(title) }
+            guard matches.count == 1, let item = matches.first, item.isEnabled else { return nil }
+            return path.count == 1 ? item : uniqueItem(path.dropFirst(), in: item.children)
+        }
+        guard let item = uniqueItem(selection.path[...], in: items),
+              item.role == selection.item.role else { return nil }
+        return item
     }
 
     private static func proxyMenuItems(
