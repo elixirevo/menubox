@@ -35,6 +35,48 @@ final class StatusItemEventRouterTests: XCTestCase {
         }
     }
 
+    func testVisibleHostAllowsButtonHitAreaBeyondSceneBounds() {
+        let host = CGRect(x: 1141.5, y: 0, width: 40, height: 33)
+        let button = CGRect(x: 1140, y: 3.5, width: 42, height: 26)
+        XCTAssertTrue(StatusItemEventRouter.hostFrameMatchesItem(host, item: button))
+        XCTAssertFalse(StatusItemEventRouter.hostFrameMatchesItem(host.offsetBy(dx: 40, dy: 0), item: button))
+        XCTAssertFalse(StatusItemEventRouter.hostFrameMatchesItem(
+            CGRect(x: 0, y: 0, width: 1728, height: 33), item: button))
+        XCTAssertFalse(StatusItemEventRouter.hostFrameMatchesItem(host, item: .zero))
+    }
+
+    func testDetachedMenuProbeRejectsForeignAndUnrelatedWindows() {
+        let popup = CGRect(x: 1208, y: 34, width: 260, height: 162)
+        let icon = CGPoint(x: 1208, y: 16.5)
+        XCTAssertTrue(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: true, layer: 101, bounds: popup, targetPoint: icon))
+        XCTAssertFalse(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: false, layer: 101, bounds: popup, targetPoint: icon))
+        XCTAssertFalse(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: true, layer: 0, bounds: popup, targetPoint: icon))
+        XCTAssertFalse(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: true, layer: 101, bounds: popup.offsetBy(dx: -1100, dy: 0), targetPoint: icon))
+        XCTAssertFalse(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: true, layer: 101, bounds: popup.offsetBy(dx: 0, dy: 600), targetPoint: icon))
+    }
+
+    func testDetachedPopupAtBoxClickPointAwayFromStatusIcon() {
+        let icon = CGPoint(x: 1208, y: 16.5)
+        let pointer = CGPoint(x: 400, y: 600)
+        let popup = CGRect(x: 400, y: 596, width: 260, height: 162)
+        XCTAssertFalse(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: true, layer: 101, bounds: popup, targetPoint: icon))
+        XCTAssertTrue(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: true, layer: 101, bounds: popup, targetPoint: icon, popupPoint: pointer))
+        XCTAssertFalse(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: false, layer: 101, bounds: popup, targetPoint: icon, popupPoint: pointer))
+        XCTAssertFalse(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: true, layer: 0, bounds: popup, targetPoint: icon, popupPoint: pointer))
+        XCTAssertFalse(MenuBarProxyScanner.isOwnedStatusMenuPopup(
+            ownerMatchesTarget: true, layer: 101, bounds: popup.offsetBy(dx: 300, dy: 0),
+            targetPoint: icon, popupPoint: pointer))
+    }
+
     private func menuItem(_ title: String, enabled: Bool = true,
                           children: [MenuBarProxyMenuItem] = []) -> MenuBarProxyMenuItem {
         .init(title: title, identity: title, role: "AXMenuItem", actions: [],

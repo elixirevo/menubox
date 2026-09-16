@@ -3,7 +3,7 @@ import ApplicationServices
 import CoreGraphics
 import Darwin
 
-/// Routes a secondary click to a status item without changing the spacer or cursor.
+/// Routes a secondary click to a status item without changing the spacer.
 enum StatusItemEventRouter {
     struct Window {
         let id: CGWindowID
@@ -39,6 +39,70 @@ enum StatusItemEventRouter {
         }
         return unsafeBitCast(symbol, to: SetWindowLocation.self)
     }()
+    private typealias GetAXWindow = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
+    private static let getAXWindow: GetAXWindow? = {
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementGetWindow") else { return nil }
+        return unsafeBitCast(symbol, to: GetAXWindow.self)
+    }()
+
+    struct Destination {
+        let window: Window
+        let localPoint: CGPoint
+    }
+
+    static func hostFrameMatchesItem(_ host: CGRect, item: CGRect) -> Bool {
+        // A hosted button's AX hit area can extend beyond its scene allocation
+        // (Claude: 42 pt button in a 40 pt group). Match its center, with bounded
+        // dimensions; full containment incorrectly rejects that visible item.
+        host.width > 0 && host.height > 0 && host.height <= 60 &&
+            item.width > 0 && item.height > 0 && item.height <= 60 &&
+            abs(host.width - item.width) <= 32 &&
+            host.contains(CGPoint(x: item.midX, y: item.midY))
+    }
+
+    /// macOS 27 publishes visible items inside a shared host window. Resolve
+    /// that host through its AX group, never from a hidden item's stale frame.
+    static func visibleHostDestination(for target: MenuBarProxyTarget) -> Destination? {
+        guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27,
+              let getAXWindow, let itemFrame = quartzFrame(of: target.accessibilityElement),
+              let agent = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.MenuBarAgent").first,
+              let info = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] else { return nil }
+        let windows = info.compactMap(Window.init(info:))
+        let point = CGPoint(x: itemFrame.midX, y: itemFrame.midY)
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success,
+              let hit else { return nil }
+        var hitPID: pid_t = 0
+        guard AXUIElementGetPid(hit, &hitPID) == .success, hitPID == target.processIdentifier,
+              let hitFrame = quartzFrame(of: hit), hitFrame.insetBy(dx: -1, dy: -1).contains(point) else { return nil }
+        var candidates: [CGWindowID: Destination] = [:]
+        for bar in elements(AXUIElementCreateApplication(agent.processIdentifier), kAXWindowsAttribute) {
+            for group in elements(bar, kAXChildrenAttribute) {
+                guard let frame = quartzFrame(of: group), hostFrameMatchesItem(frame, item: itemFrame) else { continue }
+                let children = elements(group, kAXChildrenAttribute)
+                guard children.contains(where: { child in
+                    var pid: pid_t = 0
+                    return AXUIElementGetPid(child, &pid) == .success && pid == target.processIdentifier
+                }) else { continue }
+                var id: CGWindowID = 0
+                guard getAXWindow(group, &id) == .success,
+                      let window = windows.first(where: { $0.id == id && $0.ownerPID == agent.processIdentifier }),
+                      window.frame.contains(frame), window.frame.height <= 60 else { continue }
+                candidates[id] = Destination(window: window,
+                    localPoint: CGPoint(x: point.x - window.frame.minX, y: window.frame.maxY - point.y))
+            }
+        }
+        // Space replicas refer to the same verified visible item. Prefer the
+        // foremost host in WindowServer order; never click each replica in turn.
+        return windows.lazy.compactMap { candidates[$0.id] }.first
+    }
+
+    private static func elements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement] {
+        AXUIElementSetMessagingTimeout(element, 0.2)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return [] }
+        return value as? [AXUIElement] ?? []
+    }
 
     static func matchingWindow(
         itemFrame: CGRect,
@@ -74,10 +138,15 @@ enum StatusItemEventRouter {
     }
 
     @MainActor
-    static func postRightClick(to target: MenuBarProxyTarget) async -> Bool {
-        guard AXIsProcessTrusted(), let window = window(for: target),
+    static func postRightClick(to target: MenuBarProxyTarget, destination prepared: Destination? = nil) async -> Bool {
+        guard AXIsProcessTrusted() else { return false }
+        let destination = prepared ?? window(for: target).map {
+            Destination(window: $0, localPoint: CGPoint(x: $0.frame.width / 2, y: $0.frame.height / 2))
+        } ?? visibleHostDestination(for: target)
+        guard let destination,
               let setWindowLocation,
               let source = CGEventSource(stateID: .hidSystemState) else { return false }
+        let window = destination.window
         source.localEventsSuppressionInterval = 0
 
         func event(_ type: CGEventType) -> CGEvent? {
@@ -90,7 +159,7 @@ enum StatusItemEventRouter {
             event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.id))
             event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.id))
             event.setIntegerValueField(.mouseEventClickState, value: 1)
-            setWindowLocation(event, CGPoint(x: window.frame.width / 2, y: window.frame.height / 2))
+            setWindowLocation(event, destination.localPoint)
             return event
         }
 
@@ -100,11 +169,11 @@ enum StatusItemEventRouter {
         // The session route lets WindowServer forward hosted status items back to
         // their owning app. postToPid alone bypasses that dispatch on macOS 26.
         down.post(tap: .cgSessionEventTap)
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        try? await Task.sleep(nanoseconds: 10_000_000)
         // Always balance mouse down, including when the request was cancelled.
         if let pointer = CGEvent(source: nil)?.location {
             up.location = pointer
-            setWindowLocation(up, CGPoint(x: window.frame.width / 2, y: window.frame.height / 2))
+            setWindowLocation(up, destination.localPoint)
         }
         up.post(tap: .cgSessionEventTap)
         NSLog("[MenuBox] Routed hidden right click target=%@ host=%d window=%u", target.displayName, window.ownerPID, window.id)

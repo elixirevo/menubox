@@ -9,6 +9,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         var apply: (NativeMenuBarSnapshot, MenuBarSectionPlanner.Plan) throws -> Void
         var restore: () throws -> Void
         var reapply: (NativeMenuBarSnapshot, MenuBarSectionPlanner.Plan) throws -> Void
+        var temporarilyReveal: ((String, NativeMenuBarSnapshot) throws -> Void)? = nil
         var prepare: (() async throws -> Void)?
         var log: ((String) -> Void)?
 
@@ -19,7 +20,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                   reapply: { snapshot, plan in
                       if NativeMenuBarRecovery.hasPending { try NativeMenuBarRecovery.reapply() }
                       else { try NativeMenuBarHiding.applyVisibility(snapshot, plan) }
-                  })
+                  }, temporarilyReveal: NativeMenuBarRecovery.temporarilyReveal)
         }
     }
     struct Timing {
@@ -42,6 +43,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     private var baseline: NativeMenuBarSnapshot?
     private var appliedPlan: MenuBarSectionPlanner.Plan?
     private var checkRequested = false
+    private var temporaryReveal: (token: UUID, bundle: String)?
     private(set) var hiddenApplications = Set<String>()
     private(set) var hiddenSystemItems = Set<String>()
     private let backend: Backend
@@ -221,12 +223,58 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         return restoreVisibility(preservingIntent: false)
     }
 
+    /// A short lease for generating a menu. The rest of the transaction and the
+    /// marker stay hidden. Focus/layout notifications wait until the lease ends.
+    func beginTemporaryReveal(_ bundle: String) throws -> UUID {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard wantsHidden, isHidden, !isSuspended, temporaryReveal == nil,
+              hiddenApplications.contains(bundle), let baseline, let reveal = backend.temporarilyReveal else {
+            throw NativeMenuBarSnapshot.Failure.incomplete
+        }
+        generation = UUID()
+        operation?.cancel()
+        operation = nil
+        isTransitioning = false
+        let token = UUID()
+        temporaryReveal = (token, bundle)
+        do { try reveal(bundle, baseline) }
+        catch { endTemporaryReveal(token); throw error }
+        trace("temporary menu reveal: " + bundle)
+        return token
+    }
+
+    func temporaryRevealIsReady(_ token: UUID) throws -> Bool {
+        guard let lease = temporaryReveal, lease.token == token,
+              let baseline, let plan = appliedPlan else { throw CancellationError() }
+        // The selected app is protected by the same visibility/order checks as
+        // right-side icons. All other selected apps and system items stay hidden.
+        return try backend.capture(true).hiddenState(plan.applicationKeys.subtracting([lease.bundle]),
+            comparedTo: baseline, systemItems: plan.systemItemIDs) == .hidden
+    }
+
+    func endTemporaryReveal(_ token: UUID) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard temporaryReveal?.token == token else { return }
+        let bundle = temporaryReveal!.bundle
+        temporaryReveal = nil
+        guard wantsHidden, let baseline, let plan = appliedPlan else { return }
+        do {
+            try backend.reapply(baseline, plan)
+            trace("temporary menu rehidden: " + bundle)
+        } catch {
+            trace("temporary menu rehide failed: " + error.localizedDescription)
+            onChange?(isHidden, error.localizedDescription)
+        }
+        if !isSuspended { startReconciliation(delay: timing.verification) }
+    }
+
     @discardableResult
     private func restoreVisibility(preservingIntent: Bool) -> Bool {
         dispatchPrecondition(condition: .onQueue(.main))
         generation = UUID()
         operation?.cancel()
         operation = nil
+        temporaryReveal = nil
         if !preservingIntent { wantsHidden = false }
         isTransitioning = false
         setMarkerHidden?(false)
@@ -254,7 +302,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     func environmentChanged(reason: String = "environment") {
         guard wantsHidden, !isSuspended else { return }
         trace("check requested: " + reason)
-        if operation != nil {
+        if operation != nil || temporaryReveal != nil {
             checkRequested = true
             return
         }
@@ -266,6 +314,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         guard !isSuspended else { return }
         trace("sleep: retain hidden transaction=\(baseline != nil), intent=\(wantsHidden)")
         isSuspended = true
+        if let lease = temporaryReveal { endTemporaryReveal(lease.token) }
         generation = UUID()
         operation?.cancel()
         operation = nil

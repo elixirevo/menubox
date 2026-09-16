@@ -120,15 +120,37 @@ struct MenuBarProxyMenuSelection: @unchecked Sendable {
     let identityPath: [String]
 }
 
-struct OpenedStatusItemMenu {
+final class OpenedStatusItemMenu {
     let items: [MenuBarProxyMenuItem]
     let roots: [AXUIElement]
+    let presentation: StatusItemMenuPresentation?
+    private var onCancel: (() -> Void)?
+    private var didFinish = false
+
+    init(items: [MenuBarProxyMenuItem], roots: [AXUIElement],
+         presentation: StatusItemMenuPresentation? = nil, onCancel: (() -> Void)? = nil) {
+        self.items = items
+        self.roots = roots
+        self.presentation = presentation
+        self.onCancel = onCancel
+    }
 
     func cancel() {
+        guard !didFinish else { return }
         for root in roots {
             AXUIElementSetMessagingTimeout(root, 0.2)
             _ = AXUIElementPerformAction(root, kAXCancelAction as CFString)
         }
+        finish()
+    }
+
+    /// Natural dismissal needs lease cleanup, but must not send another action
+    /// after the app has already executed the user's native menu command.
+    func finish() {
+        guard !didFinish else { return }
+        didFinish = true
+        onCancel?()
+        onCancel = nil
     }
 }
 
@@ -341,7 +363,8 @@ enum MenuBarProxyScanner {
     }
 
     /// Only menus opened by the status item, never the application's main menu bar.
-    static func openedStatusItemMenu(for target: MenuBarProxyTarget) -> OpenedStatusItemMenu? {
+    static func openedStatusItemMenu(for target: MenuBarProxyTarget,
+                                     popupPoint: CGPoint? = nil) -> OpenedStatusItemMenu? {
         var roots = directMenuRoots(for: target)
         let app = AXUIElementCreateApplication(target.processIdentifier)
         AXUIElementSetMessagingTimeout(app, 0.15)
@@ -352,8 +375,42 @@ enum MenuBarProxyScanner {
             }
         }
         roots = uniqueElements(roots).filter { appKitFrame(for: $0) != nil }
-        guard let items = bestProxyMenuItems(from: roots) else { return nil }
-        return OpenedStatusItemMenu(items: items, roots: roots)
+        if let items = bestProxyMenuItems(from: roots) {
+            return OpenedStatusItemMenu(items: items, roots: roots,
+                presentation: visibleMenuPresentation(roots: roots, target: target))
+        }
+        // Scene-hosted status menus can exist on screen without being listed
+        // under AXChildren, AXFocusedUIElement or the status button's AXMenu.
+        // Hit-test only this app's visible popup windows, then follow the hit
+        // element back to its AXMenu. Never adopt another app's nearby menu.
+        let popupRoots = screenProbeMenuRoots(for: target, onlyTargetPopups: true, popupPoint: popupPoint)
+        guard let items = bestProxyMenuItems(from: popupRoots) else { return nil }
+        return OpenedStatusItemMenu(items: items, roots: popupRoots,
+            presentation: visibleMenuPresentation(roots: popupRoots, target: target))
+    }
+
+    private static func visibleMenuPresentation(roots: [AXUIElement], target: MenuBarProxyTarget) -> StatusItemMenuPresentation? {
+        let frames = roots.compactMap { root -> CGRect? in
+            guard elementBelongsToTarget(root, target: target),
+                  let point = cgPointAttribute(kAXPositionAttribute, from: root),
+                  let size = cgSizeAttribute(kAXSizeAttribute, from: root) else { return nil }
+            return CGRect(origin: point, size: size)
+        }
+        guard !frames.isEmpty,
+              let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] else { return nil }
+        let candidates = windows.compactMap { info -> StatusItemMenuPresentation? in
+            guard let window = StatusItemEventRouter.Window(info: info),
+                  window.ownerPID == target.processIdentifier,
+                  window.layer >= Int(CGWindowLevelForKey(.popUpMenuWindow)) - 10,
+                  frames.contains(where: { frame in
+                      abs(frame.minX - window.frame.minX) <= 8 &&
+                          abs(frame.minY - window.frame.minY) <= 8 &&
+                          abs(frame.width - window.frame.width) <= 16 &&
+                          abs(frame.height - window.frame.height) <= 16
+                  }) else { return nil }
+            return .init(windowID: window.id, ownerPID: window.ownerPID, frame: window.frame)
+        }
+        return candidates.count == 1 ? candidates[0] : nil
     }
 
     static func currentMenuItem(
@@ -705,8 +762,10 @@ enum MenuBarProxyScanner {
         return unique
     }
 
-    private static func screenProbeMenuRoots(for target: MenuBarProxyTarget) -> [AXUIElement] {
-        let windows = menuWindowProbes(for: target)
+    private static func screenProbeMenuRoots(for target: MenuBarProxyTarget,
+                                            onlyTargetPopups: Bool = false,
+                                            popupPoint: CGPoint? = nil) -> [AXUIElement] {
+        let windows = menuWindowProbes(for: target, onlyTargetPopups: onlyTargetPopups, popupPoint: popupPoint)
         guard !windows.isEmpty else { return [] }
 
         let systemWide = AXUIElementCreateSystemWide()
@@ -729,7 +788,7 @@ enum MenuBarProxyScanner {
                 for root in menuRootCandidates(
                     startingAt: element,
                     target: target,
-                    allowForeignPopupRoots: true
+                    allowForeignPopupRoots: !onlyTargetPopups
                 )
                 where !roots.contains(where: { CFEqual($0, root) }) {
                     roots.append(root)
@@ -761,7 +820,24 @@ enum MenuBarProxyScanner {
         return role == "AXMenu"
     }
 
-    private static func menuWindowProbes(for target: MenuBarProxyTarget) -> [MenuWindowProbe] {
+    static func isOwnedStatusMenuPopup(ownerMatchesTarget: Bool, layer: Int,
+                                      bounds: CGRect, targetPoint: CGPoint,
+                                      popupPoint: CGPoint? = nil) -> Bool {
+        let slack = max(CGFloat(220), bounds.width)
+        let nearStatusItem = targetPoint.x >= bounds.minX - slack && targetPoint.x <= bounds.maxX + slack &&
+            bounds.minY <= targetPoint.y + 420 && bounds.maxY >= targetPoint.y - 48
+        // A cursor-preserving event can create its popup beside Box instead of
+        // the status icon. Accept that recorded click point, not an arbitrary
+        // app window or a later position the user has moved the pointer to.
+        let atClickPoint = popupPoint.map { bounds.insetBy(dx: -8, dy: -8).contains($0) } ?? false
+        return ownerMatchesTarget && layer >= max(1, Int(CGWindowLevelForKey(.popUpMenuWindow)) - 10) &&
+            bounds.width >= 12 && bounds.width <= 620 && bounds.height >= 10 && bounds.height <= 1000 &&
+            (nearStatusItem || atClickPoint)
+    }
+
+    private static func menuWindowProbes(for target: MenuBarProxyTarget,
+                                        onlyTargetPopups: Bool = false,
+                                        popupPoint: CGPoint? = nil) -> [MenuWindowProbe] {
         guard let windowInfo = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements],
             kCGNullWindowID
@@ -804,6 +880,8 @@ enum MenuBarProxyScanner {
             let isLikelyMenuLayer = layer >= max(1, popupMenuLevel - 10)
             let ownerMatchesTarget = ownerPID == targetPID ||
                 runningApplicationMatchesTarget(processIdentifier: pid_t(ownerPID), target: target)
+            if onlyTargetPopups && !isOwnedStatusMenuPopup(ownerMatchesTarget: ownerMatchesTarget,
+                layer: layer, bounds: bounds, targetPoint: targetPoint, popupPoint: popupPoint) { return nil }
             guard ownerMatchesTarget || (likelyPopup && isLikelyMenuLayer) else {
                 return nil
             }

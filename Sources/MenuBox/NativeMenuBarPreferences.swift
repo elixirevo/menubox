@@ -41,7 +41,7 @@ final class NativeMenuBarPreferences {
         _ = try read()
     }
 
-    private static var file: URL {
+    static var file: URL {
         container.appendingPathComponent("Library/Preferences/group.com.apple.controlcenter.plist")
     }
 

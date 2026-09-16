@@ -285,6 +285,10 @@ enum ClickForwarder {
         openSystemSettings(path: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
     }
 
+    static func openFullDiskAccessSettings() {
+        openSystemSettings(path: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+    }
+
     private static func openSystemSettings(path: String) {
         guard let url = URL(string: path) else { return }
         NSWorkspace.shared.open(url)

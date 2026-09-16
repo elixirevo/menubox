@@ -7,6 +7,10 @@ struct NativeMenuBarSnapshot {
         let bundle: String
         let frame: CGRect
         let identifier: String
+        var isTransientSystemIndicator: Bool {
+            bundle == "com.apple.MenuBarAgent" &&
+                ["plus", "com.apple.menuextra.audiovideo"].contains(identifier)
+        }
     }
     struct Bar {
         let frame: CGRect
@@ -94,12 +98,14 @@ struct NativeMenuBarSnapshot {
 
     func plan() throws -> MenuBarSectionPlanner.Plan {
         guard let first = bars.first else { throw Failure.incomplete }
-        let expectedIDs = Set(first.items.map(\.id))
-        guard bars.allSatisfy({ Set($0.items.map(\.id)) == expectedIDs }) else { throw Failure.incomplete }
+        let expectedIDs = Set(first.items.filter { !$0.isTransientSystemIndicator }.map(\.id))
+        guard bars.allSatisfy({ Set($0.items.filter { !$0.isTransientSystemIndicator }.map(\.id)) == expectedIDs }) else { throw Failure.incomplete }
         // Validate each display's boundary directly. A fully expanded external
         // reference display is not required for a laptop-only overflow layout.
         let displays = bars.map { bar -> MenuBarSectionPlanner.Display in
-            let items = bar.items.map { item -> MenuBarSectionPlanner.Item in
+            // Temporary OS activity indicators have no per-control visibility
+            // preference. Preserve them without blocking the user's app section.
+            let items = bar.items.filter { !$0.isTransientSystemIndicator }.map { item -> MenuBarSectionPlanner.Item in
                 let owner: MenuBarSectionPlanner.Owner
                 if item.id == "MenuBox.main" { owner = .box }
                 else if item.id == "MenuBox.marker" { owner = .marker }
@@ -127,7 +133,7 @@ struct NativeMenuBarSnapshot {
             let protected = old.items.filter {
                 !applications.contains($0.bundle) && !systemItems.contains($0.id) &&
                     !(markerHidden && $0.id == "MenuBox.marker") &&
-                    !($0.bundle == "com.apple.MenuBarAgent" && $0.identifier == "plus")
+                    !$0.isTransientSystemIndicator
             }.sorted { $0.frame.minX < $1.frame.minX }
             var previousEnd: CGFloat?
             for item in protected {
@@ -144,7 +150,7 @@ struct NativeMenuBarSnapshot {
 
     var membershipSignature: String {
         bars.map { bar in
-            bar.id + ":" + bar.items.filter { $0.identifier != "plus" }.map(\.id).sorted().joined(separator: ",")
+            bar.id + ":" + bar.items.filter { !$0.isTransientSystemIndicator }.map(\.id).sorted().joined(separator: ",")
         }.sorted().joined(separator: ";")
     }
 
@@ -154,7 +160,7 @@ struct NativeMenuBarSnapshot {
         func protected(_ item: Item) -> Bool {
             !applications.contains(item.bundle) && !systemItems.contains(item.id) &&
                 item.id != "MenuBox.marker" &&
-                !(item.bundle == "com.apple.MenuBarAgent" && item.identifier == "plus")
+                !item.isTransientSystemIndicator
         }
         for old in before.bars {
             guard let current = bars.first(where: { $0.id == old.id }),

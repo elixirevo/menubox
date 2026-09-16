@@ -14,7 +14,7 @@
 * **Tape Marker Workflow:** Use the tape icon as the boundary that decides which menu bar icons belong in MenuBox. On macOS 27 the marker disappears while hidden; the box remains available to reveal the section.
 * **Compact Box UI:** Open a floating macOS glass-style Box UI that shows hidden menu bar apps as icons.
 * **App Window Activation:** Left-click an app icon in Box UI to bring that app's window forward when supported.
-* **Native Menu Access:** Right-click an app icon in Box UI to read its status-item menu through Accessibility and display it beside the icon. On macOS 27, supported menus open and execute without revealing the hidden section; apps that expose no accessible menu show an explanation.
+* **Native Menu Access:** Right-click an app icon in Box UI to read its status-item menu through Accessibility and display it beside the icon. On macOS 27, menus that are readable while hidden keep their icons hidden; other apps are temporarily shown individually to generate their menu. The rest of the hidden section stays hidden.
 * **Unsupported App Feedback:** Apps that cannot open a window or expose a usable native menu are shown as unsupported.
 * **Auto-Hide:** Automatically hide menu bar icons again after a configurable delay.
 * **Configurable Icon Grid:** Choose how many Box UI icons appear per row.
@@ -131,6 +131,8 @@ MenuBox requires:
 1. **Accessibility** (Device Control and Data Access on macOS 27): Required to discover menu bar status items and open supported native menus from Box UI.
 2. **Full Disk Access, macOS 27 backend only:** Required to access the system’s protected per-app menu bar preferences. This is a broad macOS permission; the backend uses it for those preferences.
 
+**Settings → Permissions** shows live access status and opens the matching System Settings page. This tab opens automatically on first use, on launch with missing access, or when required access is lost while MenuBox is running. After granting access, return to MenuBox; it checks again automatically and resumes a pending hide request. Closing the page does not cause it to reopen on every check. macOS 26 does not request Full Disk Access. See [permission setup and verification](docs/permissions.md).
+
 If Accessibility permission does not apply after rebuilding the app, remove the old MenuBox entry from System Settings > Privacy & Security > Accessibility, then add the installed `/Applications/MenuBox.app` again. Ad-hoc signed rebuilds may require this for both Accessibility and Full Disk Access; use a stable signing identity for releases.
 
 When upgrading from the former app name, MenuBox imports saved app settings and menu bar positions on first launch. Its bundle identifier is now `com.elixirevo.MenuBox`; re-enable Accessibility, Screen Recording (if used), and Launch at Login for the renamed app as needed.
@@ -158,7 +160,7 @@ The macOS 27 backend uses private preferences interfaces and requires both permi
 
 Box UI support depends on what each app exposes through Accessibility and native menu APIs. Some apps show a window, some expose an `NSMenu`, and some do neither in a way MenuBox can safely control.
 
-Hidden-menu forwarding keeps the icons hidden and the pointer in place. When an individually addressable status window exists, MenuBox sends a right click before reading the generated menu. Otherwise it uses an attached Accessibility menu or an explicit menu action. Some macOS 27 scene-hosted icons, including Launchpod in the current build, expose neither a usable click destination nor an accessible menu while hidden; these remain unavailable. MenuBox does not reveal icons to work around that limitation. The event route uses private window-local coordinates, so compatibility can change with macOS updates. See [native menu behavior and verification](docs/box-native-menus.md).
+Box menu forwarding first reads a currently attached Accessibility menu, with no input sent to the source icon. Missing menus continue through right-click generation or an explicit menu action; an empty initial read is not treated as unsupported. Selection rereads the live menu and checks the command again. When those fail on macOS 27, MenuBox temporarily shows only the selected app to request its menu. When its original popup opens beside Box, it stays open and handles commands directly; the app icon is rehidden on dismissal. Popups anchored elsewhere use the proxy-menu fallback, which reacquires the native menu when selecting a command. Shared ownership that would expose a different app is refused; multiple icons owned by the selected app may appear together. The macOS 27 fallback addresses the verified MenuBarAgent host with window-local event coordinates and leaves the real cursor in place. It checks host readiness and newly generated menus promptly; the selected icon and source popup can still appear briefly. Native menu discovery also handles popups omitted from the app’s Accessibility children. Private macOS interfaces remain involved, so compatibility can change with OS updates. See [native menu behavior and verification](docs/box-native-menus.md).
 
 ## 🛠 Contributing
 

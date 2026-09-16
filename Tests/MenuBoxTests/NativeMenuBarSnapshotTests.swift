@@ -87,6 +87,24 @@ final class NativeMenuBarSnapshotTests: XCTestCase {
         XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [hidden], executables: [:])
             .verifyHidden(["one"], comparedTo: before, markerHidden: true, systemItems: ["now-playing"]))
     }
+
+    func testTemporaryActivityIndicatorCannotBlockOrUndoAppHiding() throws {
+        var visible = bar(0)
+        let indicator = item("com.apple.menuextra.audiovideo", "com.apple.MenuBarAgent", 58)
+        visible.items.append(indicator)
+        let before = NativeMenuBarSnapshot(bars: [visible], executables: [:])
+        let plan = try before.plan()
+        XCTAssertEqual(plan.applicationKeys, ["one", "two"])
+        XCTAssertTrue(plan.systemItemIDs.isEmpty, "Activity indicators must never be written to visibility preferences")
+        var hidden = visible
+        hidden.items.removeAll { ["one", "two", "MenuBox.marker"].contains($0.id) }
+        let withIndicator = NativeMenuBarSnapshot(bars: [hidden], executables: [:])
+        XCTAssertEqual(try withIndicator.hiddenState(plan.applicationKeys, comparedTo: before, systemItems: []), .hidden)
+        hidden.items.removeAll { $0.id == indicator.id }
+        let withoutIndicator = NativeMenuBarSnapshot(bars: [hidden], executables: [:])
+        XCTAssertEqual(withIndicator.membershipSignature, withoutIndicator.membershipSignature)
+        XCTAssertEqual(try withoutIndicator.hiddenState(plan.applicationKeys, comparedTo: before, systemItems: []), .hidden)
+    }
     func testHiddenStateSeparatesReappearingTargetsFromActualLayoutChanges() throws {
         let before = NativeMenuBarSnapshot(bars: [bar(0)], executables: [:])
         var current = bar(0)

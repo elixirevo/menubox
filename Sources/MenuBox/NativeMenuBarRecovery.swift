@@ -42,6 +42,31 @@ enum NativeMenuBarRecovery {
         try NativeSystemMenuBarPreferences.reapply(journal.systemChanges ?? [])
     }
 
+    static func temporarilyReveal(_ bundle: String, snapshot: NativeMenuBarSnapshot) throws {
+        let journal = try PropertyListDecoder().decode(Journal.self, from: Data(contentsOf: journalURL))
+        let preferences = try NativeMenuBarPreferences()
+        let current = try preferences.read()
+        let data = try temporaryRevealData(journal, current: current, bundle: bundle,
+            visible: Set(snapshot.bars.flatMap(\.items).map(\.bundle)), executables: snapshot.executables)
+        if current.data != data { try preferences.write(data, replacing: current.data) }
+        // Keep the original recovery journal unchanged. Reapply hides this app
+        // again; process exit still restores the original user configuration.
+    }
+
+    static func temporaryRevealData(_ journal: Journal, current: NativeMenuBarPreferences.Document,
+                                    bundle: String, visible: Set<String>, executables: [String: URL]) throws -> Data {
+        _ = try reapplicationData(journal, current: current)
+        let original = try NativeMenuBarPreferences.decode(journal.original)
+        let keys = try NativeMenuBarPreferences.controlKeys(for: [bundle], visible: visible,
+            executables: executables, in: original)
+        guard keys.count == 1, keys.allSatisfy({ journal.previousAllowed[$0] == true }) else {
+            throw NativeMenuBarPreferences.Failure.missing(bundle)
+        }
+        // controlKeys rejects shared ownership that would reveal a second app.
+        return try NativeMenuBarPreferences.changing(current, allowed: Dictionary(uniqueKeysWithValues:
+            keys.map { ($0, true) }))
+    }
+
     static func reapplicationData(_ journal: Journal, current: NativeMenuBarPreferences.Document) throws -> Data {
         // Validate the existing journal but never replace its original values
         // with already-hidden values during wake/recovery.

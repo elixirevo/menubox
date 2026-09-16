@@ -70,6 +70,8 @@ private func menuBoxHotKeyHandler(
 final class MenuBoxController: NSObject {
     private let checkForUpdates: (() -> Void)?
     private let store = SettingsStore()
+    private let permissions = PermissionStore()
+    private var hideWhenPermissionsReady = false
     private lazy var overlayManager = OverlayManager(store: store)
 
     private lazy var boxWindowController = BoxWindowController(settingsStore: store)
@@ -155,10 +157,11 @@ final class MenuBoxController: NSObject {
         if MenuBarHidingCompatibility.supportsSpacer {
             DispatchQueue.main.async { [weak self] in self?.hideHiddenIcons() }
         } else if usesNativeHiding {
+            hideWhenPermissionsReady = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                guard let self, ClickForwarder.accessibilityTrusted,
-                      (try? NativeMenuBarPreferences()) != nil else { return }
-                self.hideHiddenIcons()
+                guard let self, self.hideWhenPermissionsReady else { return }
+                self.permissions.refresh()
+                if self.permissions.snapshot.isReady { self.hideHiddenIcons() }
             }
         }
 
@@ -208,6 +211,23 @@ final class MenuBoxController: NSObject {
             NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(workspaceDidWake(_:)),
                                                               name: notification, object: nil)
         }
+        permissions.onNeedsSetup = { [weak self] in
+            guard let self else { return }
+            if !self.permissions.snapshot.isReady, self.usesNativeHiding, self.nativeHiding.wantsHidden {
+                self.hideWhenPermissionsReady = true
+            }
+            self.hiddenMenuTask?.cancel()
+            self.autoHideTimer?.invalidate()
+            self.autoHideTimer = nil
+            self.boxWindowController.close()
+            self.openSettings(tab: .permissions)
+        }
+        permissions.onAccessRestored = { [weak self] in
+            guard let self else { return }
+            self.startProxyTargetCacheWarmup()
+            if self.hideWhenPermissionsReady { self.hideHiddenIcons() }
+        }
+        permissions.start()
     }
 
     private func configureMainStatusItem() {
@@ -332,6 +352,7 @@ final class MenuBoxController: NSObject {
     }
 
     private func revealMenuBarIcons() {
+        hideWhenPermissionsReady = false
         if usesNativeHiding, !nativeHiding.show() { return }
         tapeItem?.length = StatusItemLength.shown
         isHidden = false
@@ -345,6 +366,13 @@ final class MenuBoxController: NSObject {
         boxWindowController.close()
 
         if usesNativeHiding {
+            permissions.refresh()
+            guard permissions.snapshot.isReady else {
+                hideWhenPermissionsReady = true
+                openSettings(tab: .permissions)
+                return
+            }
+            hideWhenPermissionsReady = false
             nativeHiding.hide()
             return
         }
@@ -365,6 +393,7 @@ final class MenuBoxController: NSObject {
     }
 
     func stop() {
+        permissions.stop()
         if usesNativeHiding { nativeHiding.stop() }
         autoHideTimer?.invalidate()
         tapeItem?.length = StatusItemLength.shown
@@ -563,7 +592,7 @@ final class MenuBoxController: NSObject {
         NSApplication.shared.terminate(nil)
     }
 
-    private func openSettings() {
+    private func openSettings(tab: SettingsTab? = nil) {
         if settingsWindowController == nil {
             let actions = SettingsActions(
                 refreshHiddenRange: { [weak self] in
@@ -571,16 +600,19 @@ final class MenuBoxController: NSObject {
                 },
                 showHiddenIcons: { [weak self] in self?.showHiddenIcons() },
                 hideHiddenIcons: { [weak self] in self?.hideHiddenIcons() },
-                requestAccessibility: { ClickForwarder.requestAccessibilityAccess() },
-                requestScreenRecording: { ScreenCapture.requestScreenCaptureAccess() },
+                requestAccessibility: {
+                    ClickForwarder.requestAccessibilityAccess()
+                    ClickForwarder.openAccessibilitySettings()
+                },
+                requestFullDiskAccess: { ClickForwarder.openFullDiskAccessSettings() },
                 setShortcutRecordingActive: { [weak self] active in
                     self?.setShortcutRecordingActive(active)
                 },
                 setLaunchAtLogin: { enabled in LaunchAtLoginManager.setEnabled(enabled) }
             )
-            settingsWindowController = SettingsWindowController(store: store, actions: actions)
+            settingsWindowController = SettingsWindowController(store: store, permissions: permissions, actions: actions)
         }
-        settingsWindowController?.show()
+        settingsWindowController?.show(tab: tab)
     }
 
     private func showHiddenIconsBox() {
@@ -589,7 +621,8 @@ final class MenuBoxController: NSObject {
         }
 
         guard ClickForwarder.accessibilityTrusted else {
-            ClickForwarder.requestAccessibilityAccess()
+            permissions.refresh()
+            openSettings(tab: .permissions)
             return
         }
 
@@ -838,7 +871,8 @@ final class MenuBoxController: NSObject {
 
     private func forwardClickToMenuBar(click: MenuBarProxyClick, button: CGMouseButton) {
         guard ClickForwarder.accessibilityTrusted else {
-            ClickForwarder.requestAccessibilityAccess()
+            permissions.refresh()
+            openSettings(tab: .permissions)
             return
         }
 
@@ -926,6 +960,20 @@ final class MenuBoxController: NSObject {
                 return
             }
             if let opened = await self.requestHiddenStatusItemMenu(for: liveTarget) {
+                if self.usesNativeHiding, let presentation = opened.presentation,
+                   self.boxWindowController.canUseNativeMenu(presentation, anchorPoint: anchorPoint) {
+                    self.nativeHiding.recordMenuInteraction("native presentation: \(liveTarget.bundleIdentifier), window=\(presentation.windowID)")
+                    await NativeStatusItemMenu.keepVisibleUntilClosed(opened, isVisible: { presentation.isVisible })
+                    self.nativeHiding.recordMenuInteraction("native presentation ended: \(liveTarget.bundleIdentifier)")
+                    if !Task.isCancelled {
+                        self.boxWindowController.endMenuInteraction()
+                        self.scheduleAutoHideIfNeeded(minimumDelay: 15)
+                    }
+                    return
+                }
+                if self.usesNativeHiding {
+                    self.nativeHiding.recordMenuInteraction("proxy presentation: \(liveTarget.bundleIdentifier), nativeFrame=\(opened.presentation.map { NSStringFromRect($0.frame) } ?? "unavailable")")
+                }
                 // The native popup is anchored to an offscreen icon. Display its
                 // live contents in Box UI, then reacquire the native item at selection.
                 opened.cancel()
@@ -958,7 +1006,54 @@ final class MenuBoxController: NSObject {
         if usesNativeHiding {
             nativeHiding.recordMenuInteraction("read: \(target.bundleIdentifier), items=\(menu?.items.count ?? 0)")
         }
-        return menu
+        if let menu { return menu }
+        guard !Task.isCancelled, usesNativeHiding, nativeHiding.isHidden,
+              nativeHiding.hiddenApplications.contains(target.bundleIdentifier) else { return nil }
+        return await requestTemporarilyVisibleMenu(for: target)
+    }
+
+    @MainActor
+    private func requestTemporarilyVisibleMenu(for target: MenuBarProxyTarget) async -> OpenedStatusItemMenu? {
+        do {
+            let started = ProcessInfo.processInfo.systemUptime
+            let lease = try nativeHiding.beginTemporaryReveal(target.bundleIdentifier)
+            var menuOwnsLease = false
+            defer { if !menuOwnsLease { nativeHiding.endTemporaryReveal(lease) } }
+            boxWindowController.showStatus("Opening menu: temporarily showing \(target.displayName)")
+            // Wait for the host to publish the selected app at its real position.
+            // A hidden AX frame can remain readable but points at the overflow
+            // placeholder, so it must not be used as an event destination.
+            while ProcessInfo.processInfo.systemUptime - started < 3 {
+                try Task.checkCancellation()
+                if (try? nativeHiding.temporaryRevealIsReady(lease)) == true,
+                   let live = MenuBarProxyScanner.refreshedStatusItemTarget(from: target),
+                   let destination = StatusItemEventRouter.visibleHostDestination(for: live) {
+                    let opened = await NativeStatusItemMenu.read(for: live, destination: destination) { reason in
+                        self.nativeHiding.recordMenuInteraction("temporary request: \(target.bundleIdentifier), \(reason)")
+                    }
+                    guard !Task.isCancelled, let opened else {
+                        opened?.cancel()
+                        return nil
+                    }
+                    let milliseconds = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
+                    nativeHiding.recordMenuInteraction("temporary read: \(target.bundleIdentifier), items=\(opened.items.count), elapsed=\(milliseconds)ms")
+                    // The caller dismisses immediately for Box presentation,
+                    // but keeps the live menu through command execution on
+                    // selection. Rehiding earlier can invalidate dynamic items.
+                    menuOwnsLease = true
+                    return .init(items: opened.items, roots: opened.roots, presentation: opened.presentation) { [weak self] in
+                        self?.nativeHiding.endTemporaryReveal(lease)
+                    }
+                }
+                try await Task.sleep(nanoseconds: 16_000_000)
+            }
+            nativeHiding.recordMenuInteraction("temporary route unavailable: " + target.bundleIdentifier)
+        } catch is CancellationError {
+            return nil
+        } catch {
+            nativeHiding.recordMenuInteraction("temporary reveal refused: " + error.localizedDescription)
+        }
+        return nil
     }
 
     private func selectHiddenStatusItemMenu(_ selection: MenuBarProxyMenuSelection, target: MenuBarProxyTarget) {
@@ -1262,6 +1357,7 @@ final class MenuBoxController: NSObject {
 
     @objc private func workspaceWillSleep(_ notification: Notification) {
         guard usesNativeHiding else { return }
+        hiddenMenuTask?.cancel()
         autoHideTimer?.invalidate()
         autoHideTimer = nil
         nativeHiding.suspend()
@@ -1274,6 +1370,10 @@ final class MenuBoxController: NSObject {
     }
 
     private func showHidingError(_ message: String) {
+        permissions.refresh()
+        // Missing access has its own actionable settings page, not a transient
+        // Box error. PermissionStore presents it once per loss of access.
+        guard permissions.snapshot.isReady else { return }
         guard let frame = statusItem?.button?.window?.frame,
               let screen = MenuBarGeometry.screen(containing: NSPoint(x: frame.midX, y: frame.midY)) else { return }
         boxWindowController.showProxyTargets(anchorFrame: frame, screen: screen, proxyTargets: [], statusText: message)

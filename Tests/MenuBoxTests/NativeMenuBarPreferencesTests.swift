@@ -134,4 +134,47 @@ final class NativeMenuBarPreferencesTests: XCTestCase {
         XCTAssertThrowsError(try NativeMenuBarRecovery.reapplicationData(journal, current: reassigned))
     }
 
+    func testTemporaryRevealChangesOnlySelectedAppAndKeepsRecoveryBaseline() throws {
+        let original = try document([("left", true, ["left"]), ("second", true, ["second"]),
+                                     ("right", true, ["right"])])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: ["left": false, "second": false])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: written,
+                                                    previousAllowed: ["left": true, "second": true])
+        let current = try NativeMenuBarPreferences.decode(written)
+        let shown = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.temporaryRevealData(journal,
+            current: current, bundle: "left", visible: ["left", "second", "right"], executables: [:]))
+        XCTAssertEqual(shown.records["left"]?.allowed, true)
+        XCTAssertEqual(shown.records["second"]?.allowed, false)
+        XCTAssertEqual(shown.records["right"]?.allowed, true)
+        XCTAssertEqual(NSArray(array: Array(shown.entries.dropFirst(2))),
+                       NSArray(array: Array(current.entries.dropFirst(2))))
+        let rehidden = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.reapplicationData(journal, current: shown))
+        XCTAssertEqual(rehidden.records["left"]?.allowed, false)
+        XCTAssertEqual(rehidden.records["second"]?.allowed, false)
+        let restored = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.restorationData(journal, current: rehidden))
+        XCTAssertEqual(NSArray(array: restored.entries), NSArray(array: original.entries))
+    }
+
+    func testTemporaryRevealRejectsSharedOwnerAndUnselectedApp() throws {
+        let original = try document([("owner", true, ["one", "two"]), ("right", true, ["right"])])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: ["owner": false])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: written,
+                                                    previousAllowed: ["owner": true])
+        for bundle in ["one", "right", NativeMenuBarPreferences.ownBundle] {
+            XCTAssertThrowsError(try NativeMenuBarRecovery.temporaryRevealData(journal,
+                current: NativeMenuBarPreferences.decode(written), bundle: bundle,
+                visible: ["one", "two", "right"], executables: [:]))
+        }
+    }
+
+    func testTemporaryRevealSupportsUniquelyAttributedHelper() throws {
+        let original = try document([("owner", true, ["helper"])])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: ["owner": false])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: written,
+                                                    previousAllowed: ["owner": true])
+        let shown = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.temporaryRevealData(journal,
+            current: NativeMenuBarPreferences.decode(written), bundle: "helper", visible: ["helper"], executables: [:]))
+        XCTAssertEqual(shown.records["owner"]?.allowed, true)
+    }
+
 }
