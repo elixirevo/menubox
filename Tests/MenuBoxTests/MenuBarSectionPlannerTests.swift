@@ -39,17 +39,37 @@ final class MenuBarSectionPlannerTests: XCTestCase {
         ])) { XCTAssertEqual($0 as? Planner.Failure, .applicationSpansBoundary("shared-app")) }
     }
 
-    func testRejectsOverlappingOverflowPlaceholdersEvenInsideDisplay() {
-        XCTAssertThrowsError(try Planner.plan(displays: [display([
+    func testOverflowPlaceholdersWhollyLeftOfMarkerRemainEligible() throws {
+        let plan = try Planner.plan(displays: [display([
             item("one", .application("one"), -850),
             item("two", .application("two"), -850)
-        ])])) { XCTAssertEqual($0 as? Planner.Failure, .ambiguousGeometry("external")) }
+        ])])
+        XCTAssertEqual(plan.applicationKeys, ["one", "two"])
     }
 
-    func testDoesNotSilentlyIgnoreSystemItemsOnLeft() {
-        XCTAssertThrowsError(try Planner.plan(displays: [display([
-            item("focus", .system("focus"), -850)
-        ])])) { XCTAssertEqual($0 as? Planner.Failure, .unsupportedSystemItem("focus")) }
+    func testOverlappingMarkerOrProtectedItemsStillRejectsAmbiguousGeometry() {
+        for extras in [
+            [item("crossing", .application("app"), -645)],
+            [item("right-one", .application("one"), -500), item("right-two", .application("two"), -500)],
+            [item("box-overlap", .application("app"), -580)]
+        ] {
+            XCTAssertThrowsError(try Planner.plan(displays: [display(extras)])) {
+                XCTAssertEqual($0 as? Planner.Failure, .ambiguousGeometry("external"))
+            }
+        }
+    }
+
+    func testSelectsIndividualSystemItemsOnLeftAndPreservesRightFocus() throws {
+        let plan = try Planner.plan(displays: [display([
+            item("now-playing", .system("now-playing"), -950),
+            item("input-menu", .system("input-menu"), -900),
+            item("app", .application("app"), -850),
+            item("focus", .system("focus"), -400)
+        ])])
+        XCTAssertEqual(plan.applicationKeys, ["app"])
+        XCTAssertEqual(plan.systemItemIDs, ["now-playing", "input-menu"])
+        XCTAssertEqual(plan.protectedItemsByDisplay["external"],
+                       ["box", "marker", "focus"])
     }
 
     func testMissingBoxCannotPassUsingMarkerFromSameProcess() {

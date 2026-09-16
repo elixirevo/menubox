@@ -92,6 +92,7 @@ final class MenuBoxController: NSObject {
         let hiding = NativeMenuBarHiding()
         hiding.setMarkerHidden = { [weak self] hidden in
             guard let self else { return }
+            guard self.tapeItem?.isVisible != !hidden else { return }
             if hidden { self.savedMarkerFrame = self.tapeItem?.button?.window?.frame }
             self.tapeItem?.isVisible = !hidden
         }
@@ -198,6 +199,15 @@ final class MenuBoxController: NSObject {
             name: NSWorkspace.didTerminateApplicationNotification,
             object: nil
         )
+        for notification in [NSWorkspace.willSleepNotification, NSWorkspace.screensDidSleepNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(workspaceWillSleep(_:)),
+                                                              name: notification, object: nil)
+        }
+        for notification in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification,
+                             NSWorkspace.sessionDidBecomeActiveNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(workspaceDidWake(_:)),
+                                                              name: notification, object: nil)
+        }
     }
 
     private func configureMainStatusItem() {
@@ -835,7 +845,7 @@ final class MenuBoxController: NSObject {
         autoHideTimer?.invalidate()
         autoHideTimer = nil
 
-        if !click.revealBeforeForwarding {
+        if usesNativeHiding || !click.revealBeforeForwarding {
             guard let target = click.target else {
                 boxWindowController.showStatus("Failed: No target")
                 return
@@ -910,15 +920,11 @@ final class MenuBoxController: NSObject {
             guard let self else { return }
             guard !Task.isCancelled else { return }
             self.boxWindowController.beginMenuInteraction()
-            if self.usesNativeHiding && self.nativeHiding.isHidden {
-                // Native hiding removes the hosted AX item. Restore it before
-                // asking the application to construct its menu, then use the
-                // existing interaction timer to hide the section again.
-                self.revealMenuBarIcons()
-                try? await Task.sleep(nanoseconds: HiddenBoxLayout.clickForwardInitialDelayNanoseconds)
-                guard !Task.isCancelled else { return }
+            guard let liveTarget = MenuBarProxyScanner.refreshedStatusItemTarget(from: target) else {
+                self.boxWindowController.showUnavailableMenu(for: target, anchorPoint: anchorPoint)
+                self.boxWindowController.endMenuInteraction()
+                return
             }
-            let liveTarget = MenuBarProxyScanner.refreshedTarget(from: target) ?? target
             if let opened = await self.requestHiddenStatusItemMenu(for: liveTarget) {
                 // The native popup is anchored to an offscreen icon. Display its
                 // live contents in Box UI, then reacquire the native item at selection.
@@ -932,7 +938,7 @@ final class MenuBoxController: NSObject {
             } else if !Task.isCancelled, self.boxWindowController.isShowing {
                 let items = MenuBarProxyScanner.immediateProxyMenuItems(for: liveTarget)
                 if !self.showProxyMenuIfAvailable(for: liveTarget, items: items, anchorPoint: anchorPoint) {
-                    self.boxWindowController.showStatus("Menu unavailable: \(liveTarget.displayName)")
+                    self.boxWindowController.showUnavailableMenu(for: liveTarget, anchorPoint: anchorPoint)
                 }
             }
             if !Task.isCancelled {
@@ -944,21 +950,15 @@ final class MenuBoxController: NSObject {
 
     @MainActor
     private func requestHiddenStatusItemMenu(for target: MenuBarProxyTarget) async -> OpenedStatusItemMenu? {
-        guard await StatusItemEventRouter.postRightClick(to: target) else { return nil }
-        for _ in 0..<16 {
-            if let menu = MenuBarProxyScanner.openedStatusItemMenu(for: target) {
-                if Task.isCancelled { menu.cancel(); return nil }
-                return menu
-            }
-            // A posted event cannot be recalled. Keep watching briefly after
-            // cancellation so a late popup is closed before the next request.
-            await withCheckedContinuation { continuation in
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    continuation.resume()
-                }
+        let menu = await NativeStatusItemMenu.read(for: target) { reason in
+            if self.usesNativeHiding {
+                self.nativeHiding.recordMenuInteraction("request: \(target.bundleIdentifier), \(reason)")
             }
         }
-        return nil
+        if usesNativeHiding {
+            nativeHiding.recordMenuInteraction("read: \(target.bundleIdentifier), items=\(menu?.items.count ?? 0)")
+        }
+        return menu
     }
 
     private func selectHiddenStatusItemMenu(_ selection: MenuBarProxyMenuSelection, target: MenuBarProxyTarget) {
@@ -971,7 +971,8 @@ final class MenuBoxController: NSObject {
             guard !Task.isCancelled else { return }
             self.boxWindowController.beginMenuInteraction()
             defer { self.boxWindowController.endMenuInteraction() }
-            guard let opened = await self.requestHiddenStatusItemMenu(for: target) else {
+            guard let currentTarget = MenuBarProxyScanner.refreshedStatusItemTarget(from: target),
+                  let opened = await self.requestHiddenStatusItemMenu(for: currentTarget) else {
                 self.boxWindowController.showStatus("Menu unavailable: \(target.displayName)")
                 self.scheduleAutoHideIfNeeded(minimumDelay: 15)
                 return
@@ -984,6 +985,9 @@ final class MenuBoxController: NSObject {
                 return
             }
             let result = ClickForwarder.performProxyMenuItem(item)
+            if self.usesNativeHiding {
+                self.nativeHiding.recordMenuInteraction("selection: \(target.bundleIdentifier), forwarded=\(result.didForward)")
+            }
             self.boxWindowController.showStatus("\(result.title): \(item.title)")
             if result.didForward, self.isQuitMenuSelection(selection) {
                 self.removeProxyTargets(processIdentifier: target.processIdentifier)
@@ -1219,7 +1223,7 @@ final class MenuBoxController: NSObject {
 
     @objc private func screenParametersChanged() {
         store.refreshDisplays()
-        if usesNativeHiding { nativeHiding.environmentChanged() }
+        if usesNativeHiding { nativeHiding.environmentChanged(reason: "display parameters") }
         if isHidden {
             hideHiddenIcons()
         }
@@ -1227,7 +1231,7 @@ final class MenuBoxController: NSObject {
     }
 
     @objc private func activeSpaceChanged() {
-        if usesNativeHiding { nativeHiding.environmentChanged() }
+        if usesNativeHiding { nativeHiding.environmentChanged(reason: "active Space") }
         if isHidden {
             hideHiddenIcons()
         }
@@ -1235,12 +1239,12 @@ final class MenuBoxController: NSObject {
     }
 
     @objc private func runningApplicationsChanged() {
-        if usesNativeHiding { nativeHiding.environmentChanged() }
+        if usesNativeHiding { nativeHiding.environmentChanged(reason: "application launched") }
         scheduleProxyTargetCacheRefreshes(delays: ProxyTargetCacheTiming.appChangeRefreshDelays)
     }
 
     @objc private func runningApplicationTerminated(_ notification: Notification) {
-        if usesNativeHiding { nativeHiding.environmentChanged() }
+        if usesNativeHiding { nativeHiding.environmentChanged(reason: "application terminated") }
         if let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
             removeProxyTargets(processIdentifier: app.processIdentifier)
         } else if let app = notification.object as? NSRunningApplication {
@@ -1254,6 +1258,19 @@ final class MenuBoxController: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.nativeHiding.verifyAfterFocusChange()
         }
+    }
+
+    @objc private func workspaceWillSleep(_ notification: Notification) {
+        guard usesNativeHiding else { return }
+        autoHideTimer?.invalidate()
+        autoHideTimer = nil
+        nativeHiding.suspend()
+    }
+
+    @objc private func workspaceDidWake(_ notification: Notification) {
+        if usesNativeHiding { nativeHiding.resume(reason: notification.name.rawValue) }
+        else if isHidden { hideHiddenIcons() }
+        scheduleProxyTargetCacheRefreshes(delays: ProxyTargetCacheTiming.environmentRefreshDelays)
     }
 
     private func showHidingError(_ message: String) {

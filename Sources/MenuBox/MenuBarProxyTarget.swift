@@ -290,6 +290,27 @@ enum MenuBarProxyScanner {
         self.target(from: target.accessibilityElement, clippingRect: nil)
     }
 
+    static func refreshedStatusItemTarget(from original: MenuBarProxyTarget) -> MenuBarProxyTarget? {
+        guard let app = NSRunningApplication(processIdentifier: original.processIdentifier),
+              app.bundleIdentifier == original.bundleIdentifier, !app.isTerminated else { return nil }
+        if let current = refreshedTarget(from: original) { return current }
+        let candidates = statusItemTargets(runningApplications: [.init(
+            processIdentifier: original.processIdentifier, bundleIdentifier: original.bundleIdentifier,
+            localizedName: original.appName, icon: original.icon)])
+        let matches = candidates.filter {
+            $0.role == original.role && $0.title == original.title && $0.description == original.description
+        }
+        return matches.count == 1 ? matches.first : nil
+    }
+
+    static func requestExplicitStatusItemMenu(for target: MenuBarProxyTarget) -> Bool {
+        var actions: CFArray?
+        AXUIElementSetMessagingTimeout(target.accessibilityElement, 0.2)
+        guard AXUIElementCopyActionNames(target.accessibilityElement, &actions) == .success,
+              (actions as? [String] ?? []).contains(kAXShowMenuAction) else { return false }
+        return AXUIElementPerformAction(target.accessibilityElement, kAXShowMenuAction as CFString) == .success
+    }
+
     static func matchingTarget(for original: MenuBarProxyTarget, in appKitRect: NSRect) -> MenuBarProxyTarget? {
         let candidates = targets(in: appKitRect)
         guard !candidates.isEmpty else { return nil }

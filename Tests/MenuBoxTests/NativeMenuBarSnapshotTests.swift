@@ -20,6 +20,11 @@ final class NativeMenuBarSnapshotTests: XCTestCase {
         XCTAssertEqual(try snapshot.plan().applicationKeys, ["one", "two"])
     }
 
+    func testLaptopOnlyOverflowNeedsNoFullyExpandedReferenceDisplay() throws {
+        let snapshot = NativeMenuBarSnapshot(bars: [bar(0, overflow: true)], executables: [:])
+        XCTAssertEqual(try snapshot.plan().applicationKeys, ["one", "two"])
+    }
+
     func testReferenceCannotOverrideDifferentSideOnAnotherDisplay() {
         var other = bar(0)
         other.items[0] = item("one", "one", 175)
@@ -65,4 +70,39 @@ final class NativeMenuBarSnapshotTests: XCTestCase {
         XCTAssertNoThrow(try NativeMenuBarSnapshot(bars: [hidden], executables: [:])
             .verifyHidden(["one", "two"], comparedTo: before, markerHidden: true))
     }
+
+    func testIndividualSystemHidingStillRequiresUnselectedSystemControls() throws {
+        var original = bar(0)
+        original.items[1] = item("now-playing", "com.apple.MenuBarAgent", 35)
+        let before = NativeMenuBarSnapshot(bars: [original], executables: [:])
+        var hidden = original
+        hidden.items.removeAll { ["one", "now-playing", "MenuBox.marker"].contains($0.id) }
+        XCTAssertNoThrow(try NativeMenuBarSnapshot(bars: [hidden], executables: [:])
+            .verifyHidden(["one"], comparedTo: before, markerHidden: true, systemItems: ["now-playing"]))
+        var reappeared = hidden
+        reappeared.items.append(original.items[1])
+        XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [reappeared], executables: [:])
+            .verifyHidden(["one"], comparedTo: before, markerHidden: true, systemItems: ["now-playing"]))
+        hidden.items.removeAll { $0.id == "focus" }
+        XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [hidden], executables: [:])
+            .verifyHidden(["one"], comparedTo: before, markerHidden: true, systemItems: ["now-playing"]))
+    }
+    func testHiddenStateSeparatesReappearingTargetsFromActualLayoutChanges() throws {
+        let before = NativeMenuBarSnapshot(bars: [bar(0)], executables: [:])
+        var current = bar(0)
+        current.items.removeAll { ["one", "two", "MenuBox.marker"].contains($0.id) }
+        func state() throws -> NativeMenuBarSnapshot.HiddenState {
+            try NativeMenuBarSnapshot(bars: [current], executables: [:])
+                .hiddenState(["one", "two"], comparedTo: before, systemItems: [])
+        }
+        XCTAssertEqual(try state(), .hidden)
+        current.items.insert(item("one", "one", 10), at: 0)
+        XCTAssertEqual(try state(), .targetsVisible)
+        current.items.append(item("new", "new", 170))
+        XCTAssertEqual(try state(), .layoutChanged)
+        current.items.removeLast()
+        current.items.removeAll { $0.id == "focus" }
+        XCTAssertEqual(try state(), .layoutChanged)
+    }
+
 }

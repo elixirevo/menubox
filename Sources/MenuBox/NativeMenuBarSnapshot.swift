@@ -93,51 +93,40 @@ struct NativeMenuBarSnapshot {
     }
 
     func plan() throws -> MenuBarSectionPlanner.Plan {
-        // Overflow replicas can share coordinates on a narrow display. Require
-        // a fully laid-out reference and confirm every replica's boundary using
-        // matching identities. Never interpret overlapping AX frames as visibility.
-        guard let reference = bars.first(where: { bar in
-            let items = bar.items.sorted { $0.frame.minX < $1.frame.minX }
-            return items.allSatisfy { bar.frame.contains($0.frame) && $0.frame.width > 0 } &&
-                zip(items, items.dropFirst()).allSatisfy { $0.frame.maxX <= $1.frame.minX }
-        }), let marker = reference.items.first(where: { $0.id == "MenuBox.marker" }) else { throw Failure.incomplete }
-        let referenceIDs = Set(reference.items.map(\.id))
-        for bar in bars {
-            guard Set(bar.items.map(\.id)) == referenceIDs,
-                  let localMarker = bar.items.first(where: { $0.id == "MenuBox.marker" }) else { throw Failure.incomplete }
-            for item in bar.items where item.bundle != NativeMenuBarPreferences.ownBundle {
-                guard let expected = reference.items.first(where: { $0.id == item.id }),
-                      (item.frame.maxX <= localMarker.frame.minX) == (expected.frame.maxX <= marker.frame.minX),
-                      item.frame.maxX <= localMarker.frame.minX || item.frame.minX >= localMarker.frame.maxX else {
-                    throw Failure.boundary
-                }
+        guard let first = bars.first else { throw Failure.incomplete }
+        let expectedIDs = Set(first.items.map(\.id))
+        guard bars.allSatisfy({ Set($0.items.map(\.id)) == expectedIDs }) else { throw Failure.incomplete }
+        // Validate each display's boundary directly. A fully expanded external
+        // reference display is not required for a laptop-only overflow layout.
+        let displays = bars.map { bar -> MenuBarSectionPlanner.Display in
+            let items = bar.items.map { item -> MenuBarSectionPlanner.Item in
+                let owner: MenuBarSectionPlanner.Owner
+                if item.id == "MenuBox.main" { owner = .box }
+                else if item.id == "MenuBox.marker" { owner = .marker }
+                else if item.bundle.hasPrefix("com.apple.") { owner = .system(item.id) }
+                else { owner = .application(item.bundle) }
+                return .init(id: item.id, owner: owner, frame: item.frame)
             }
+            return .init(id: bar.id, frame: bar.frame, items: items, isResolved: true)
         }
-        let items = reference.items.map { item -> MenuBarSectionPlanner.Item in
-            let owner: MenuBarSectionPlanner.Owner
-            if item.id == "MenuBox.main" { owner = .box }
-            else if item.id == "MenuBox.marker" { owner = .marker }
-            else if item.bundle.hasPrefix("com.apple.") { owner = .system(item.id) }
-            else { owner = .application(item.bundle) }
-            return .init(id: item.id, owner: owner, frame: item.frame)
-        }
-        return try MenuBarSectionPlanner.plan(displays: [
-            .init(id: reference.id, frame: reference.frame, items: items, isResolved: true)
-        ])
+        return try MenuBarSectionPlanner.plan(displays: displays)
     }
 
     func verifyHidden(_ applications: Set<String>, comparedTo before: NativeMenuBarSnapshot,
-                      markerHidden: Bool = false) throws {
+                      markerHidden: Bool = false, systemItems: Set<String> = []) throws {
         guard Set(bars.map(\.id)) == Set(before.bars.map(\.id)) else { throw Failure.verification }
         for old in before.bars {
             guard let current = bars.first(where: { $0.id == old.id }),
-                  !current.items.contains(where: { applications.contains($0.bundle) }) else { throw Failure.verification }
+                  !current.items.contains(where: { applications.contains($0.bundle) || systemItems.contains($0.id) }) else {
+                throw Failure.verification
+            }
             if markerHidden, current.items.contains(where: { $0.id == "MenuBox.marker" }) { throw Failure.verification }
             // MenuBarAgent's transient '+' indicator appears during computer
             // use and shifts neighboring items. Compare protected identities
             // and their order, rather than freezing global x coordinates.
             let protected = old.items.filter {
-                !applications.contains($0.bundle) && !(markerHidden && $0.id == "MenuBox.marker") &&
+                !applications.contains($0.bundle) && !systemItems.contains($0.id) &&
+                    !(markerHidden && $0.id == "MenuBox.marker") &&
                     !($0.bundle == "com.apple.MenuBarAgent" && $0.identifier == "plus")
             }.sorted { $0.frame.minX < $1.frame.minX }
             var previousEnd: CGFloat?
@@ -149,6 +138,38 @@ struct NativeMenuBarSnapshot {
                 previousEnd = actual.frame.maxX
             }
         }
+    }
+
+    enum HiddenState { case hidden, targetsVisible, layoutChanged }
+
+    var membershipSignature: String {
+        bars.map { bar in
+            bar.id + ":" + bar.items.filter { $0.identifier != "plus" }.map(\.id).sorted().joined(separator: ",")
+        }.sorted().joined(separator: ";")
+    }
+
+    func hiddenState(_ applications: Set<String>, comparedTo before: NativeMenuBarSnapshot,
+                     systemItems: Set<String>) throws -> HiddenState {
+        guard Set(bars.map(\.id)) == Set(before.bars.map(\.id)) else { return .layoutChanged }
+        func protected(_ item: Item) -> Bool {
+            !applications.contains(item.bundle) && !systemItems.contains(item.id) &&
+                item.id != "MenuBox.marker" &&
+                !(item.bundle == "com.apple.MenuBarAgent" && item.identifier == "plus")
+        }
+        for old in before.bars {
+            guard let current = bars.first(where: { $0.id == old.id }),
+                  Set(current.items.filter(protected).map(\.id)) == Set(old.items.filter(protected).map(\.id))
+            else { return .layoutChanged }
+        }
+        // Validate protected controls even when a selected item has reappeared.
+        let filtered = bars.map { Bar(frame: $0.frame, items: $0.items.filter(protected)) }
+        do {
+            try NativeMenuBarSnapshot(bars: filtered, executables: executables)
+                .verifyHidden(applications, comparedTo: before, markerHidden: true, systemItems: systemItems)
+        } catch { throw Failure.incomplete }
+        return bars.flatMap(\.items).contains {
+            applications.contains($0.bundle) || systemItems.contains($0.id) || $0.id == "MenuBox.marker"
+        } ? .targetsVisible : .hidden
     }
 
     private static func attribute(_ item: AXUIElement, _ name: String) -> CFTypeRef? {

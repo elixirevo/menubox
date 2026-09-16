@@ -194,6 +194,13 @@ final class BoxWindowController {
         }
     }
 
+    func showUnavailableMenu(for target: MenuBarProxyTarget, anchorPoint: NSPoint?) {
+        let message = MenuBarProxyMenuItem(title: "Could not open this menu while its icon is hidden",
+            identity: "unavailable", role: "AXMenuItem", actions: [], accessibilityElement: nil,
+            appKitFrame: nil, isSeparator: false, isEnabled: false, isChecked: false, children: [])
+        showProxyMenu(for: target, items: [message], anchorPoint: anchorPoint) { _ in }
+    }
+
     func showProxyMenu(
         for target: MenuBarProxyTarget,
         items: [MenuBarProxyMenuItem],

@@ -14,7 +14,7 @@
 * **Tape Marker Workflow:** Use the tape icon as the boundary that decides which menu bar icons belong in MenuBox. On macOS 27 the marker disappears while hidden; the box remains available to reveal the section.
 * **Compact Box UI:** Open a floating macOS glass-style Box UI that shows hidden menu bar apps as icons.
 * **App Window Activation:** Left-click an app icon in Box UI to bring that app's window forward when supported.
-* **Native Menu Access:** Right-click an app icon in Box UI to request its real status-item menu, including menus created on click. MenuBox reads the generated menu through Accessibility and displays it beside the icon.
+* **Native Menu Access:** Right-click an app icon in Box UI to read its status-item menu through Accessibility and display it beside the icon. On macOS 27, supported menus open and execute without revealing the hidden section; apps that expose no accessible menu show an explanation.
 * **Unsupported App Feedback:** Apps that cannot open a window or expose a usable native menu are shown as unsupported.
 * **Auto-Hide:** Automatically hide menu bar icons again after a configurable delay.
 * **Configurable Icon Grid:** Choose how many Box UI icons appear per row.
@@ -152,13 +152,13 @@ When upgrading from the former app name, MenuBox imports saved app settings and 
 
 macOS does not provide a public API for taking ownership of third-party menu bar icons. On macOS 13–26, MenuBox expands the tape marker to push selected icons out of the visible menu bar area.
 
-**macOS 27 uses per-app “Allow in Menu Bar” settings.** MenuBox hides the applications left of the marker, then hides its own marker. The box and right-side icons, including Focus, remain available. Reveal and recovery restore the previous visibility values. A stale macOS launcher-to-icon association is corrected when needed so apps such as ChatGPT can hide and reappear reliably. See [implementation and verification](docs/macos-27-hiding.md).
+**macOS 27 uses per-app “Allow in Menu Bar” settings.** MenuBox hides applications and supported system controls left of the marker, together with its own marker. The box and right-side icons, including Focus, remain available. Reveal and recovery restore the previous visibility values. A stale macOS launcher-to-icon association is corrected when needed so apps such as ChatGPT can hide and reappear reliably. See [implementation and verification](docs/macos-27-hiding.md).
 
-The macOS 27 backend uses private preferences interfaces and requires both permissions listed above. It cannot hide just one of an app’s icons when that app spans both sides of the marker, or selectively hide a system control to the left. Ambiguous layouts or attribution are rejected before changes; failed hiding verification restores visibility. Local ad-hoc builds need their existing permissions re-registered after rebuilding.
+The macOS 27 backend uses private preferences interfaces and requires both permissions listed above. It cannot hide just one of an app’s icons when that app spans both sides of the marker, or hide an unsupported system control. Supported controls include Now Playing, Text Input, Sound, Wi-Fi, Battery, Focus, Screen Mirroring, Display and Timer. Laptop-only overflow is supported when the marker boundary is clear. Ambiguous layouts or attribution are rejected before changes. Sleep and layout recovery preserve hidden intent and retry transient failures; explicit reveal cancels pending retries. Local ad-hoc builds need their existing permissions re-registered after rebuilding.
 
 Box UI support depends on what each app exposes through Accessibility and native menu APIs. Some apps show a window, some expose an `NSMenu`, and some do neither in a way MenuBox can safely control.
 
-On macOS 13–26, hidden-menu forwarding leaves the spacer and pointer in place. On macOS 27, MenuBox restores the icons before requesting their native menu, then uses the existing auto-hide timer. It uses WindowServer event routing and a runtime-resolved private API for window-local event coordinates; compatibility can change with macOS updates. MenuBox reports `Menu unavailable` if the app does not produce a readable menu. See [native menu behavior and verification](docs/box-native-menus.md).
+Hidden-menu forwarding keeps the icons hidden and the pointer in place. When an individually addressable status window exists, MenuBox sends a right click before reading the generated menu. Otherwise it uses an attached Accessibility menu or an explicit menu action. Some macOS 27 scene-hosted icons, including Launchpod in the current build, expose neither a usable click destination nor an accessible menu while hidden; these remain unavailable. MenuBox does not reveal icons to work around that limitation. The event route uses private window-local coordinates, so compatibility can change with macOS updates. See [native menu behavior and verification](docs/box-native-menus.md).
 
 ## 🛠 Contributing
 

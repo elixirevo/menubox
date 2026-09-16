@@ -106,4 +106,32 @@ final class NativeMenuBarPreferencesTests: XCTestCase {
         XCTAssertTrue(NativeMenuBarPreferences.missingSelfLocations(for: ["helper"], keys: ["owner"],
                                                                    executables: [:], in: doc).isEmpty)
     }
+
+    func testSystemOnlyJournalPreservesApplicationPreferences() throws {
+        let original = try document([("right", true, ["right"])])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: original.data,
+            previousAllowed: [:], systemChanges: [.init(setting: .nowPlaying, original: nil)])
+        XCTAssertEqual(try NativeMenuBarRecovery.restorationData(journal, current: original), original.data)
+    }
+    func testReapplyRetainsOriginalRecoveryValuesAndUnrelatedChanges() throws {
+        let original = try document([("left", true, ["left"]), ("right", true, ["right"])])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: ["left": false])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: written, previousAllowed: ["left": true])
+        let reset = try document([("left", true, ["left"]), ("right", false, ["right"])])
+        let reapplied = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.reapplicationData(journal, current: reset))
+        XCTAssertEqual(reapplied.records["left"]?.allowed, false)
+        XCTAssertEqual(reapplied.records["right"]?.allowed, false)
+        let restored = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.restorationData(journal, current: reapplied))
+        XCTAssertEqual(restored.records["left"]?.allowed, true)
+        XCTAssertEqual(restored.records["right"]?.allowed, false)
+    }
+
+    func testReapplyRejectsNewUnrelatedOwnerLocation() throws {
+        let original = try document([("left", true, ["left"]), ("right", true, ["right"])])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: ["left": false])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: written, previousAllowed: ["left": true])
+        let reassigned = try document([("left", true, ["left", "right"]), ("right", true, ["right"])])
+        XCTAssertThrowsError(try NativeMenuBarRecovery.reapplicationData(journal, current: reassigned))
+    }
+
 }

@@ -6,6 +6,7 @@ enum NativeMenuBarRecovery {
         let written: Data
         let previousAllowed: [String: Bool]
         var addedSelfLocations: Set<String>? = nil
+        var systemChanges: [NativeSystemMenuBarPreferences.Change]? = nil
     }
     private static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/MenuBox/Visibility", isDirectory: true)
@@ -28,12 +29,45 @@ enum NativeMenuBarRecovery {
         let current = try preferences.read()
         let restored = try restorationData(journal, current: current)
         if current.data != restored { try preferences.write(restored, replacing: current.data) }
+        try NativeSystemMenuBarPreferences.restore(journal.systemChanges ?? [])
         try FileManager.default.removeItem(at: journalURL)
+    }
+
+    static func reapply() throws {
+        let journal = try PropertyListDecoder().decode(Journal.self, from: Data(contentsOf: journalURL))
+        let preferences = try NativeMenuBarPreferences()
+        let current = try preferences.read()
+        let data = try reapplicationData(journal, current: current)
+        if current.data != data { try preferences.write(data, replacing: current.data) }
+        try NativeSystemMenuBarPreferences.reapply(journal.systemChanges ?? [])
+    }
+
+    static func reapplicationData(_ journal: Journal, current: NativeMenuBarPreferences.Document) throws -> Data {
+        // Validate the existing journal but never replace its original values
+        // with already-hidden values during wake/recovery.
+        _ = try restorationData(journal, current: current)
+        let written = try NativeMenuBarPreferences.decode(journal.written)
+        for key in journal.previousAllowed.keys {
+            guard let record = current.records[key], let expected = written.records[key] else {
+                throw NativeMenuBarPreferences.Failure.missing(key)
+            }
+            let locations = NSArray(array: expected.locations)
+            guard record.locations.allSatisfy({ locations.contains($0) }) else {
+                throw NativeMenuBarPreferences.Failure.shared(key)
+            }
+        }
+        return try NativeMenuBarPreferences.changing(current,
+            allowed: journal.previousAllowed.mapValues { _ in false },
+            includingSelfLocations: journal.addedSelfLocations ?? [])
     }
 
     static func restorationData(_ journal: Journal, current: NativeMenuBarPreferences.Document) throws -> Data {
         let original = try NativeMenuBarPreferences.decode(journal.original)
-        guard !journal.previousAllowed.isEmpty,
+        try NativeSystemMenuBarPreferences.validate(journal.systemChanges ?? [])
+        guard !journal.previousAllowed.isEmpty || !(journal.systemChanges ?? []).isEmpty else {
+            throw NativeMenuBarPreferences.Failure.schema
+        }
+        guard
               journal.previousAllowed.allSatisfy({ key, value in
                   key != NativeMenuBarPreferences.ownBundle && original.records[key]?.allowed == value
               }) else {
