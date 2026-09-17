@@ -20,6 +20,7 @@ enum NativeStatusItemMenu {
 
     static func read(for target: MenuBarProxyTarget,
                      destination: StatusItemEventRouter.Destination? = nil,
+                     displayBounds: CGRect? = nil,
                      report: (String) -> Void = { _ in }) async -> OpenedStatusItemMenu? {
         var popupPoint: CGPoint?
         var visibleBeforeRequest: Set<CGWindowID>?
@@ -31,7 +32,8 @@ enum NativeStatusItemMenu {
         return await read(rightClick: {
                        captureVisibleWindows()
                        let pointer = CGEvent(source: nil)?.location
-                       let posted = await StatusItemEventRouter.postRightClick(to: target, destination: destination)
+                       let posted = await StatusItemEventRouter.postRightClick(to: target, destination: destination,
+                                                                             displayBounds: displayBounds)
                        if posted { popupPoint = pointer }
                        return posted
                    },

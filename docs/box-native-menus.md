@@ -130,6 +130,59 @@ appeared. The fixed build recognized the same reused AlDente window (ID 78) as
 while the panel remained open. The Xcode XCTest runner passed 120 tests with two
 opt-in live tests skipped. Evidence: `artifacts/macos27/aldente-popup-v1/`.
 
+## Dynamic menus behind the notch (macOS 27)
+
+A shown section is not necessarily clickable: the system overflow can cover an
+allowed icon. Previously the fallback required `nativeHiding.isHidden`, then only
+changed the selected app's visibility flag. It could not recover this case.
+
+The request now resolves the hosted icon on the display containing Box. An
+attached menu still takes the no-input path. If a dynamic menu has no addressable
+host, MenuBox temporarily places the selected status item immediately to the right
+of Box using its entry in `com.apple.MenuBar`'s `TrailingItemPreferredPositions`.
+The numeric weight is chosen between Box and its existing right neighbor; other
+entries are preserved. A hidden request also retains the existing selected-app
+visibility lease. The whole section and native overflow are never expanded for
+menu discovery.
+
+The live hit must belong to the selected app **and** have status-button geometry.
+The frontmost app's full-width menu bar can own the hit at an overflow placeholder;
+PID equality alone is insufficient. Stale Space replicas are rejected by this hit
+test before ambiguity checks. Remaining equivalent replicas use WindowServer's
+front-to-back order. Distinct visible icons still require an item-level match.
+
+A position journal is written before the preference change. Menu dismissal,
+replacement, failure, sleep and termination restore only the selected entry;
+unrelated changes and a user's manual move take precedence. The existing recovery
+helper also restores placement after parent exit, and startup retries pending
+recovery. Box membership refresh waits for the restored layout so the temporarily
+moved item does not disappear from the Box list. Original shown/hidden intent is
+preserved. The private preference format is validated and restricted to macOS 27;
+missing, ambiguous or unreadable entries fail without guessing. Full Disk Access
+is the same permission already used for native hiding.
+
+Failed menu requests now show a short status inside Box rather than constructing
+a disabled, empty menu. The status also appears when routine status messages are
+turned off, then disappears automatically.
+
+Final installed validation (`artifacts/macos27/notch-menu-v1/`, 27.0 / 26A428):
+
+- With MenuBox shown and native overflow collapsed on the built-in 1728-point
+  screen, Claude moved from the overlapping x=956.5 placeholder to x=1171.5,
+  beside Box. After dismissal it returned to x=956.5; both MenuBox controls also
+  returned to their original frames. The placement journal was cleared.
+- Repeated requests read seven Claude entries and retained the original native
+  popup beside Box. Observed final-build openings took 373–882 ms. In the captured
+  request, the pointer stayed at (1142.72, 91.70) through opening and the same
+  Claude window (1833, layer 101) remained open until user dismissal; no MenuBox
+  proxy appeared for that request.
+- AlDente used the same overflow relocation path, retained its custom popup and
+  restored its original weight (635) after closure. No charging setting changed.
+- The Xcode XCTest runner executed 137 tests: 135 passed and two opt-in live tests
+  were skipped. Release build and strict bundle signature checks passed. Installed,
+  staged and `dist` executables match. Command execution and an induced app crash
+  were not part of this live check; restoration semantics are covered by tests.
+
 ## Compatibility
 
 `CGEventSetWindowLocation` and the event window-number field are private implementation details. The symbol is resolved at runtime; the forwarding path is disabled if it is unavailable. No process injection or modification of another app is used.

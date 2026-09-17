@@ -62,19 +62,52 @@ enum StatusItemEventRouter {
 
     /// macOS 27 publishes visible items inside a shared host window. Resolve
     /// that host through its AX group, never from a hidden item's stale frame.
-    static func visibleHostDestination(for target: MenuBarProxyTarget) -> Destination? {
+    static func visibleHostDestination(for target: MenuBarProxyTarget, on displayBounds: CGRect? = nil) -> Destination? {
         guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27,
               let getAXWindow, let itemFrame = quartzFrame(of: target.accessibilityElement),
               let agent = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.MenuBarAgent").first,
               let info = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] else { return nil }
         let windows = info.compactMap(Window.init(info:))
+        if let displayBounds {
+            // AXExtrasMenuBar may describe a replica on another screen. Resolve
+            // the app's hosted group on the screen containing Box instead.
+            var groups: [(AXUIElement, CGRect)] = []
+            for bar in elements(AXUIElementCreateApplication(agent.processIdentifier), kAXWindowsAttribute) {
+                for group in elements(bar, kAXChildrenAttribute) {
+                    guard let frame = quartzFrame(of: group),
+                          displayBounds.contains(CGPoint(x: frame.midX, y: frame.midY)),
+                          frame.width > 0, frame.height > 0, frame.height <= 60,
+                          elements(group, kAXChildrenAttribute).contains(where: { child in
+                              var pid: pid_t = 0
+                              return AXUIElementGetPid(child, &pid) == .success && pid == target.processIdentifier
+                          }) else { continue }
+                    groups.append((group, frame))
+                }
+            }
+            var hosts: [VerifiedHost] = []
+            for (group, frame) in groups {
+                let point = CGPoint(x: frame.midX, y: frame.midY)
+                var hit: AXUIElement?, pid: pid_t = 0, id: CGWindowID = 0
+                guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success,
+                      let hit, AXUIElementGetPid(hit, &pid) == .success, pid == target.processIdentifier,
+                      let hitFrame = quartzFrame(of: hit), hostFrameMatchesItem(frame, item: hitFrame),
+                      hitFrame.insetBy(dx: -1, dy: -1).contains(point),
+                      getAXWindow(group, &id) == .success,
+                      let window = windows.first(where: { $0.id == id && $0.ownerPID == agent.processIdentifier }),
+                      window.frame.contains(frame), window.frame.height <= 60 else { continue }
+                hosts.append(VerifiedHost(frame: frame, destination: Destination(window: window,
+                    localPoint: CGPoint(x: point.x - window.frame.minX, y: window.frame.maxY - point.y))))
+            }
+            return preferredVisibleHost(hosts, itemFrame: itemFrame, windowOrder: windows.map(\.id))
+        }
         let point = CGPoint(x: itemFrame.midX, y: itemFrame.midY)
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success,
               let hit else { return nil }
         var hitPID: pid_t = 0
         guard AXUIElementGetPid(hit, &hitPID) == .success, hitPID == target.processIdentifier,
-              let hitFrame = quartzFrame(of: hit), hitFrame.insetBy(dx: -1, dy: -1).contains(point) else { return nil }
+              let hitFrame = quartzFrame(of: hit), hostFrameMatchesItem(itemFrame, item: hitFrame),
+              hitFrame.insetBy(dx: -1, dy: -1).contains(point) else { return nil }
         var candidates: [CGWindowID: Destination] = [:]
         for bar in elements(AXUIElementCreateApplication(agent.processIdentifier), kAXWindowsAttribute) {
             for group in elements(bar, kAXChildrenAttribute) {
@@ -95,6 +128,22 @@ enum StatusItemEventRouter {
         // Space replicas refer to the same verified visible item. Prefer the
         // foremost host in WindowServer order; never click each replica in turn.
         return windows.lazy.compactMap { candidates[$0.id] }.first
+    }
+
+    struct VerifiedHost {
+        let frame: CGRect
+        let destination: Destination
+    }
+
+    /// Only hosts passing the live system hit test reach this selection. Space
+    /// replicas can retain the old overflow frame during/after a move; those
+    /// stale frames must be excluded before deciding that identity is ambiguous.
+    static func preferredVisibleHost(_ hosts: [VerifiedHost], itemFrame: CGRect,
+                                     windowOrder: [CGWindowID]) -> Destination? {
+        let frames = Set(hosts.map { NSStringFromRect($0.frame) })
+        let matching = frames.count == 1 ? hosts : hosts.filter { hostFrameMatchesItem($0.frame, item: itemFrame) }
+        guard Set(matching.map { NSStringFromRect($0.frame) }).count == 1 else { return nil }
+        return windowOrder.lazy.compactMap { id in matching.first { $0.destination.window.id == id }?.destination }.first
     }
 
     private static func elements(_ element: AXUIElement, _ attribute: String) -> [AXUIElement] {
@@ -138,11 +187,12 @@ enum StatusItemEventRouter {
     }
 
     @MainActor
-    static func postRightClick(to target: MenuBarProxyTarget, destination prepared: Destination? = nil) async -> Bool {
+    static func postRightClick(to target: MenuBarProxyTarget, destination prepared: Destination? = nil,
+                               displayBounds: CGRect? = nil) async -> Bool {
         guard AXIsProcessTrusted() else { return false }
-        let destination = prepared ?? window(for: target).map {
+        let destination = prepared ?? (displayBounds == nil ? window(for: target).map {
             Destination(window: $0, localPoint: CGPoint(x: $0.frame.width / 2, y: $0.frame.height / 2))
-        } ?? visibleHostDestination(for: target)
+        } : nil) ?? visibleHostDestination(for: target, on: displayBounds)
         guard let destination,
               let setWindowLocation,
               let source = CGEventSource(stateID: .hidSystemState) else { return false }

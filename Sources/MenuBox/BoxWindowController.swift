@@ -41,6 +41,12 @@ final class BoxWindowController {
         panel?.isVisible == true
     }
 
+    var menuDisplayBounds: CGRect? {
+        guard let screen = panel?.screen,
+              let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+        return CGDisplayBounds(number.uint32Value)
+    }
+
     func beginMenuInteraction() {
         isMenuInteractionActive = true
         suppressDismissUntil = .distantFuture
@@ -200,24 +206,24 @@ final class BoxWindowController {
         showProxyTargets(anchorFrame: anchorFrame, screen: screen, proxyTargets: proxyTargets, reusingPanel: true)
     }
 
-    func showStatus(_ text: String, duration: TimeInterval = 2.8) {
-        guard settingsStore.settings.boxStatusMessagesEnabled else { return }
+    func showStatus(_ text: String, duration: TimeInterval = 2.8, force: Bool = false) {
+        guard force || settingsStore.settings.boxStatusMessagesEnabled else { return }
         guard let content = iconStripView else { return }
+        content.showsStatusText = true
         content.statusText = text
         content.needsDisplay = true
 
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self, weak content] in
             guard let self, let content, self.iconStripView === content else { return }
+            guard content.statusText == text else { return }
+            content.showsStatusText = self.settingsStore.settings.boxStatusMessagesEnabled
             content.statusText = self.initialStatusText(proxyTargets: content.proxyTargets)
             content.needsDisplay = true
         }
     }
 
     func showUnavailableMenu(for target: MenuBarProxyTarget, anchorPoint: NSPoint?) {
-        let message = MenuBarProxyMenuItem(title: "Could not open this app’s menu",
-            identity: "unavailable", role: "AXMenuItem", actions: [], accessibilityElement: nil,
-            appKitFrame: nil, isSeparator: false, isEnabled: false, isChecked: false, children: [])
-        showProxyMenu(for: target, items: [message], anchorPoint: anchorPoint) { _ in }
+        showStatus("Could not open \(target.displayName)’s menu", force: true)
     }
 
     func canUseNativeMenu(_ presentation: StatusItemMenuPresentation, anchorPoint: NSPoint?) -> Bool {

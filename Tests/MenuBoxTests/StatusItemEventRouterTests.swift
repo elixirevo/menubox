@@ -43,6 +43,32 @@ final class StatusItemEventRouterTests: XCTestCase {
         XCTAssertFalse(StatusItemEventRouter.hostFrameMatchesItem(
             CGRect(x: 0, y: 0, width: 1728, height: 33), item: button))
         XCTAssertFalse(StatusItemEventRouter.hostFrameMatchesItem(host, item: .zero))
+        // When Claude is frontmost, the covered notch position can hit Claude's
+        // entire menu bar. PID equality alone is not proof of an icon hit.
+        XCTAssertFalse(StatusItemEventRouter.hostFrameMatchesItem(host,
+            item: CGRect(x: 0, y: 0, width: 1728, height: 33)))
+    }
+
+    func testChoosesLiveDisplayReplicaWhenItemFrameBelongsToAnotherScreen() {
+        let frame = CGRect(x: 1171.5, y: 0, width: 40, height: 33)
+        func host(_ id: CGWindowID) -> StatusItemEventRouter.VerifiedHost {
+            .init(frame: frame, destination: .init(window: .init(id: id, ownerPID: 20,
+                frame: CGRect(x: 0, y: 0, width: 1728, height: 33), layer: 24),
+                localPoint: CGPoint(x: frame.midX, y: 16.5)))
+        }
+        XCTAssertEqual(StatusItemEventRouter.preferredVisibleHost([host(1), host(2)],
+            itemFrame: itemFrame, windowOrder: [2, 1])?.window.id, 2)
+        XCTAssertNil(StatusItemEventRouter.preferredVisibleHost([], itemFrame: itemFrame, windowOrder: [2, 1]))
+    }
+
+    func testMultipleLiveIconsStillRequireAnItemLevelMatch() {
+        let frame = CGRect(x: 1171.5, y: 0, width: 40, height: 33)
+        let destination = StatusItemEventRouter.Destination(window: window(1), localPoint: .zero)
+        let hosts = [StatusItemEventRouter.VerifiedHost(frame: frame, destination: destination),
+                     .init(frame: frame.offsetBy(dx: 50, dy: 0), destination: destination)]
+        XCTAssertNil(StatusItemEventRouter.preferredVisibleHost(hosts, itemFrame: itemFrame, windowOrder: [1]))
+        XCTAssertNotNil(StatusItemEventRouter.preferredVisibleHost(hosts,
+            itemFrame: frame.insetBy(dx: 4, dy: 3), windowOrder: [1]))
     }
 
     func testDetachedMenuProbeRejectsForeignAndUnrelatedWindows() {

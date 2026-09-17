@@ -86,6 +86,7 @@ final class MenuBoxController: NSObject {
     private var autoHideTimer: Timer?
     private var captureTask: Task<Void, Never>?
     private var hiddenMenuTask: Task<Void, Never>?
+    private var pendingMenuPlacementRestore: (token: UUID, target: MenuBarProxyTarget, display: CGRect)?
     private var isHidden = false
     private var usesNativeHiding: Bool {
         ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27
@@ -150,7 +151,10 @@ final class MenuBoxController: NSObject {
             self?.hiddenMenuTask?.cancel()
         }
         boxWindowController.onMenuInteractionEnded = { [weak self] in
-            DispatchQueue.main.async { self?.renderCachedProxyTargetsIfBoxVisible() }
+            Task { @MainActor [weak self] in
+                await self?.waitForMenuPlacementRestoration()
+                self?.renderCachedProxyTargetsIfBoxVisible()
+            }
         }
 
         configureMainStatusItem()
@@ -362,6 +366,8 @@ final class MenuBoxController: NSObject {
     }
 
     private func revealMenuBarIcons() {
+        hiddenMenuTask?.cancel()
+        try? NativeMenuBarPlacement.restore()
         hideWhenPermissionsReady = false
         if usesNativeHiding, !nativeHiding.show() { return }
         tapeItem?.length = StatusItemLength.shown
@@ -374,6 +380,7 @@ final class MenuBoxController: NSObject {
         captureTask?.cancel()
         captureTask = nil
         boxWindowController.close()
+        try? NativeMenuBarPlacement.restore()
 
         if usesNativeHiding {
             permissions.refresh()
@@ -404,6 +411,8 @@ final class MenuBoxController: NSObject {
 
     func stop() {
         isStopping = true
+        hiddenMenuTask?.cancel()
+        try? NativeMenuBarPlacement.restore()
         proxyTargetScanTask?.cancel()
         proxyTargetPeriodicRefreshTimer?.invalidate()
         proxyTargetWarmupWorkItem?.cancel()
@@ -807,6 +816,7 @@ final class MenuBoxController: NSObject {
 
     private func renderCachedProxyTargetsIfBoxVisible() {
         guard !isStopping, boxWindowController.isShowing,
+              pendingMenuPlacementRestore == nil,
               !boxWindowController.isMenuInteractionActive,
               let anchorFrame = statusItem?.button?.window?.frame,
               let tapeFrame = markerFrame,
@@ -953,6 +963,8 @@ final class MenuBoxController: NSObject {
     }
 
     private func openHiddenStatusItemMenu(for target: MenuBarProxyTarget, anchorPoint: NSPoint?) {
+        autoHideTimer?.invalidate()
+        autoHideTimer = nil
         let previous = hiddenMenuTask
         previous?.cancel()
         boxWindowController.beginMenuInteraction()
@@ -960,6 +972,7 @@ final class MenuBoxController: NSObject {
         hiddenMenuTask = Task { @MainActor [weak self] in
             await previous?.value
             guard let self else { return }
+            await self.waitForMenuPlacementRestoration()
             guard !Task.isCancelled else { return }
             self.boxWindowController.beginMenuInteraction()
             guard let liveTarget = MenuBarProxyScanner.refreshedStatusItemTarget(from: target) else {
@@ -1007,7 +1020,8 @@ final class MenuBoxController: NSObject {
 
     @MainActor
     private func requestHiddenStatusItemMenu(for target: MenuBarProxyTarget) async -> OpenedStatusItemMenu? {
-        let menu = await NativeStatusItemMenu.read(for: target) { reason in
+        let menu = await NativeStatusItemMenu.read(for: target,
+            displayBounds: usesNativeHiding ? boxWindowController.menuDisplayBounds : nil) { reason in
             if self.usesNativeHiding {
                 self.nativeHiding.recordMenuInteraction("request: \(target.bundleIdentifier), \(reason)")
             }
@@ -1016,28 +1030,54 @@ final class MenuBoxController: NSObject {
             nativeHiding.recordMenuInteraction("read: \(target.bundleIdentifier), items=\(menu?.items.count ?? 0)")
         }
         if let menu { return menu }
-        guard !Task.isCancelled, usesNativeHiding, nativeHiding.isHidden,
-              nativeHiding.hiddenApplications.contains(target.bundleIdentifier) else { return nil }
+        guard !Task.isCancelled, usesNativeHiding else { return nil }
+        // Only recover an unavailable click route. An addressable app that did
+        // not open a menu must not be moved or clicked again as a side effect.
+        guard StatusItemEventRouter.visibleHostDestination(for: target,
+            on: boxWindowController.menuDisplayBounds) == nil else { return nil }
         return await requestTemporarilyVisibleMenu(for: target)
     }
 
     @MainActor
     private func requestTemporarilyVisibleMenu(for target: MenuBarProxyTarget) async -> OpenedStatusItemMenu? {
+        var visibilityLease: UUID?
+        var placement: NativeMenuBarPlacement.Change?
+        var menuOwnsLease = false
+        let display = boxWindowController.menuDisplayBounds
+        defer {
+            if !menuOwnsLease {
+                finishTemporaryMenu(placement: placement, visibilityLease: visibilityLease, target: target, display: display)
+            }
+        }
         do {
             let started = ProcessInfo.processInfo.systemUptime
-            let lease = try nativeHiding.beginTemporaryReveal(target.bundleIdentifier)
-            var menuOwnsLease = false
-            defer { if !menuOwnsLease { nativeHiding.endTemporaryReveal(lease) } }
-            boxWindowController.showStatus("Opening menu: temporarily showing \(target.displayName)")
+            try await nativeHiding.prepareMenuPlacementRecovery()
+            try Task.checkCancellation()
+            if nativeHiding.isHidden {
+                guard nativeHiding.hiddenApplications.contains(target.bundleIdentifier) else { return nil }
+                visibilityLease = try nativeHiding.beginTemporaryReveal(target.bundleIdentifier)
+            }
+            var revealReady = visibilityLease == nil
+            boxWindowController.showStatus("Opening menu: \(target.displayName)")
             // Wait for the host to publish the selected app at its real position.
             // A hidden AX frame can remain readable but points at the overflow
             // placeholder, so it must not be used as an event destination.
             while ProcessInfo.processInfo.systemUptime - started < 3 {
                 try Task.checkCancellation()
-                if (try? nativeHiding.temporaryRevealIsReady(lease)) == true,
-                   let live = MenuBarProxyScanner.refreshedStatusItemTarget(from: target),
-                   let destination = StatusItemEventRouter.visibleHostDestination(for: live) {
-                    let opened = await NativeStatusItemMenu.read(for: live, destination: destination) { reason in
+                if !revealReady, let visibilityLease {
+                    revealReady = (try? nativeHiding.temporaryRevealIsReady(visibilityLease)) == true
+                }
+                if revealReady, let live = MenuBarProxyScanner.refreshedStatusItemTarget(from: target) {
+                    guard let destination = StatusItemEventRouter.visibleHostDestination(for: live, on: display) else {
+                        if placement == nil {
+                            guard display != nil else { throw NativeMenuBarPlacement.Failure.ambiguous }
+                            placement = try NativeMenuBarPlacement.begin(bundle: target.bundleIdentifier, identifier: target.identifier)
+                            nativeHiding.recordMenuInteraction("temporary placement: \(target.bundleIdentifier), \(placement!.original) -> \(placement!.temporary)")
+                        }
+                        try await Task.sleep(nanoseconds: 16_000_000)
+                        continue
+                    }
+                    let opened = await NativeStatusItemMenu.read(for: live, destination: destination, displayBounds: display) { reason in
                         self.nativeHiding.recordMenuInteraction("temporary request: \(target.bundleIdentifier), \(reason)")
                     }
                     guard !Task.isCancelled, let opened else {
@@ -1052,7 +1092,8 @@ final class MenuBoxController: NSObject {
                     menuOwnsLease = true
                     return .init(items: opened.items, roots: opened.roots, presentation: opened.presentation,
                                  kind: opened.kind) { [weak self] in
-                        self?.nativeHiding.endTemporaryReveal(lease)
+                        self?.finishTemporaryMenu(placement: placement, visibilityLease: visibilityLease,
+                                                  target: target, display: display)
                     }
                 }
                 try await Task.sleep(nanoseconds: 16_000_000)
@@ -1066,6 +1107,34 @@ final class MenuBoxController: NSObject {
         return nil
     }
 
+    private func finishTemporaryMenu(placement: NativeMenuBarPlacement.Change?, visibilityLease: UUID?,
+                                     target: MenuBarProxyTarget, display: CGRect?) {
+        if let placement {
+            do {
+                try NativeMenuBarPlacement.restore(token: placement.token)
+                nativeHiding.recordMenuInteraction("temporary placement restored: \(target.bundleIdentifier)")
+                if let display { pendingMenuPlacementRestore = (placement.token, target, display) }
+            } catch {
+                nativeHiding.recordMenuInteraction("position restoration pending: \(error.localizedDescription)")
+                boxWindowController.showStatus("Could not restore the icon position", force: true)
+            }
+        }
+        if let visibilityLease { nativeHiding.endTemporaryReveal(visibilityLease) }
+    }
+
+    @MainActor private func waitForMenuPlacementRestoration() async {
+        guard let pending = pendingMenuPlacementRestore else { return }
+        let deadline = ProcessInfo.processInfo.systemUptime + 1.5
+        // The original target was unaddressable on this display. Wait for the
+        // restored overflow/hidden layout before recomputing Box membership.
+        while !Task.isCancelled, ProcessInfo.processInfo.systemUptime < deadline {
+            guard let target = MenuBarProxyScanner.refreshedStatusItemTarget(from: pending.target),
+                  StatusItemEventRouter.visibleHostDestination(for: target, on: pending.display) != nil else { break }
+            try? await Task.sleep(nanoseconds: 16_000_000)
+        }
+        if pendingMenuPlacementRestore?.token == pending.token { pendingMenuPlacementRestore = nil }
+    }
+
     private func selectHiddenStatusItemMenu(_ selection: MenuBarProxyMenuSelection, target: MenuBarProxyTarget) {
         let previous = hiddenMenuTask
         previous?.cancel()
@@ -1073,6 +1142,7 @@ final class MenuBoxController: NSObject {
         hiddenMenuTask = Task { @MainActor [weak self] in
             await previous?.value
             guard let self else { return }
+            await self.waitForMenuPlacementRestoration()
             guard !Task.isCancelled else { return }
             self.boxWindowController.beginMenuInteraction()
             defer { self.boxWindowController.endMenuInteraction() }
@@ -1368,6 +1438,7 @@ final class MenuBoxController: NSObject {
     @objc private func workspaceWillSleep(_ notification: Notification) {
         guard usesNativeHiding else { return }
         hiddenMenuTask?.cancel()
+        try? NativeMenuBarPlacement.restore()
         autoHideTimer?.invalidate()
         autoHideTimer = nil
         nativeHiding.suspend()

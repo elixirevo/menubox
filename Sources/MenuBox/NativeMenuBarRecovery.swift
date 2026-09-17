@@ -171,7 +171,11 @@ enum NativeMenuBarRecovery {
             FileHandle.standardOutput.write(Data("READY\n".utf8))
             try FileHandle.standardOutput.close()
             _ = FileHandle.standardInput.readDataToEndOfFile()
+            var placementError: Error?
+            do { try NativeMenuBarPlacement.restore() }
+            catch { placementError = error }
             try restore()
+            if let placementError { throw placementError }
             return 0
         } catch {
             FileHandle.standardError.write(Data("MenuBox recovery failed: \(error.localizedDescription)\n".utf8))

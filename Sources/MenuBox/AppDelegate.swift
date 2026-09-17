@@ -6,6 +6,10 @@ enum MenuBoxApplication {
     private static let delegate = AppDelegate()
 
     static func main() {
+        if CommandLine.arguments.contains("--menubox-layout-inspect") {
+            MenuBarAccessDiagnostics.writeLayoutSnapshot()
+            return
+        }
         if CommandLine.arguments.contains(FullDiskAccessRequest.helperArgument) {
             exit(FullDiskAccessRequest.runHelper())
         }
@@ -28,10 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        do { try NativeMenuBarPlacement.restore() }
+        catch { NSLog("[MenuBox] Menu bar position recovery pending: %@", error.localizedDescription) }
         do { try NativeMenuBarRecovery.restore() }
         catch { NSLog("[MenuBox] Menu bar recovery pending: %@", error.localizedDescription) }
         if UserDefaults.standard.bool(forKey: "MenuBoxEnableVisibilityAccessProbe") {
             MenuBarAccessDiagnostics.writeSnapshot()
+            MenuBarAccessDiagnostics.writeLayoutSnapshot()
         }
         let controller = MenuBoxController(checkForUpdates: { [updaterController] in
             updaterController.checkForUpdates(nil)

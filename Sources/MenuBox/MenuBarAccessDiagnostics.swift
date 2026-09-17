@@ -6,6 +6,24 @@ import ObjectiveC
 /// Read-only capability probe. A loaded framework is not evidence that the
 /// process can read or change the system's per-app visibility preferences.
 enum MenuBarAccessDiagnostics {
+    /// Opt-in diagnostics read only the verified macOS 27 layout preference.
+    static func writeLayoutSnapshot() {
+        guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27 else { return }
+        var report: [String: Any] = ["path": NativeMenuBarPlacement.file.path]
+        do {
+            let data = try Data(contentsOf: NativeMenuBarPlacement.file)
+            let root = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+            report["positions"] = try NativeMenuBarPlacement.decode(root?[NativeMenuBarPlacement.preferenceKey])
+        } catch { report["error"] = error.localizedDescription }
+        let directory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/MenuBox/Diagnostics")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let data = try PropertyListSerialization.data(fromPropertyList: report, format: .xml, options: 0)
+            try data.write(to: directory.appendingPathComponent("menu-bar-layout.plist"), options: .atomic)
+        } catch { NSLog("[MenuBox] Layout diagnostics failed: %@", error.localizedDescription) }
+    }
+
     private static let framework = dlopen(
         "/System/Library/PrivateFrameworks/MenuBarClientCore.framework/MenuBarClientCore",
         RTLD_LAZY | RTLD_LOCAL
@@ -99,7 +117,7 @@ enum MenuBarAccessDiagnostics {
         }
     }
 
-    static func containerDefaults(_ container: URL) -> UserDefaults? {
+    static func containerDefaults(_ container: URL, suiteName: String = "group.com.apple.controlcenter") -> UserDefaults? {
         let allocateSelector = NSSelectorFromString("alloc")
         let initializeSelector = NSSelectorFromString("_initWithSuiteName:container:")
         guard let allocation = class_getClassMethod(UserDefaults.self, allocateSelector),
@@ -111,7 +129,7 @@ enum MenuBarAccessDiagnostics {
         let allocate = unsafeBitCast(method_getImplementation(allocation), to: Allocate.self)
         let initialize = unsafeBitCast(method_getImplementation(initialization), to: Initialize.self)
         guard let object = allocate(UserDefaults.self, allocateSelector) else { return nil }
-        return initialize(object, initializeSelector, "group.com.apple.controlcenter", container as NSURL)?
+        return initialize(object, initializeSelector, suiteName as NSString, container as NSURL)?
             .takeRetainedValue() as? UserDefaults
     }
 }

@@ -281,6 +281,10 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         return restoreVisibility(preservingIntent: false)
     }
 
+    @MainActor func prepareMenuPlacementRecovery() async throws {
+        try await ensureHelper()
+    }
+
     /// A short lease for generating a menu. The rest of the transaction and the
     /// marker stay hidden. Focus/layout notifications wait until the lease ends.
     func beginTemporaryReveal(_ bundle: String) throws -> UUID {
