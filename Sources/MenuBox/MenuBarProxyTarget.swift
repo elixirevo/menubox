@@ -14,6 +14,12 @@ final class MenuBarProxyTarget: @unchecked Sendable {
     let bundleIdentifier: String
     let appName: String
     let icon: NSImage?
+    let identifier: String
+
+    var identity: MenuBarTargetIdentity {
+        .init(processIdentifier: processIdentifier, bundleIdentifier: bundleIdentifier,
+              identifier: identifier, element: accessibilityElement)
+    }
 
     init(
         appKitFrame: NSRect,
@@ -26,7 +32,8 @@ final class MenuBarProxyTarget: @unchecked Sendable {
         processIdentifier: pid_t,
         bundleIdentifier: String,
         appName: String,
-        icon: NSImage?
+        icon: NSImage?,
+        identifier: String = ""
     ) {
         self.appKitFrame = appKitFrame
         self.appKitClickPoint = appKitClickPoint
@@ -39,6 +46,7 @@ final class MenuBarProxyTarget: @unchecked Sendable {
         self.bundleIdentifier = bundleIdentifier
         self.appName = appName
         self.icon = icon
+        self.identifier = identifier
     }
 
     var displayName: String {
@@ -155,6 +163,10 @@ final class OpenedStatusItemMenu {
 }
 
 enum MenuBarProxyScanner {
+    struct StatusItemScan: @unchecked Sendable {
+        var targets: [MenuBarProxyTarget] = []
+        var completeOwners = Set<pid_t>()
+    }
     struct RunningApplicationInfo: @unchecked Sendable {
         let processIdentifier: pid_t
         let bundleIdentifier: String
@@ -192,7 +204,7 @@ enum MenuBarProxyScanner {
 
         let systemWide = AXUIElementCreateSystemWide()
         let sampleYs = ySamples(in: appKitRect)
-        var targetsByKey: [String: MenuBarProxyTarget] = [:]
+        var targetsByKey: [MenuBarTargetIdentity: MenuBarProxyTarget] = [:]
 
         for appKitY in sampleYs {
             var x = appKitRect.minX + 2
@@ -233,7 +245,11 @@ enum MenuBarProxyScanner {
         scanStatusItemTargets(
             runningApplications: runningApplications,
             markerX: nil
-        )
+        ).targets
+    }
+
+    static func scanStatusItems(runningApplications: [RunningApplicationInfo]) -> StatusItemScan {
+        scanStatusItemTargets(runningApplications: runningApplications, markerX: nil)
     }
 
     static func targetsBeforeMarker(
@@ -243,42 +259,51 @@ enum MenuBarProxyScanner {
         scanStatusItemTargets(
             runningApplications: runningApplications,
             markerX: tapeFrame.minX
-        )
+        ).targets
     }
 
     private static func scanStatusItemTargets(
         runningApplications: [RunningApplicationInfo],
         markerX: CGFloat?
-    ) -> [MenuBarProxyTarget] {
+    ) -> StatusItemScan {
         guard ClickForwarder.accessibilityTrusted else {
-            return []
+            return .init()
         }
 
         let startedAt = CFAbsoluteTimeGetCurrent()
-        var targetsByKey: [String: MenuBarProxyTarget] = [:]
+        var targetsByKey: [MenuBarTargetIdentity: MenuBarProxyTarget] = [:]
+        var completeOwners = Set<pid_t>()
         let applicationInfoByPID = Dictionary(uniqueKeysWithValues: runningApplications.map {
             ($0.processIdentifier, $0)
         })
 
         for app in runningApplications {
+            if Task.isCancelled { break }
             let appElement = AXUIElementCreateApplication(app.processIdentifier)
             applyStatusItemScanTimeout(to: appElement)
-            let bars = accessibilityElements(attribute: "AXExtrasMenuBar", from: appElement)
+            guard let bars = statusItemElements("AXExtrasMenuBar", from: appElement) else { continue }
+            var complete = true
             for bar in bars {
                 applyStatusItemScanTimeout(to: bar)
-                for item in accessibilityElements(attribute: kAXChildrenAttribute as String, from: bar) {
+                guard let items = statusItemElements(kAXChildrenAttribute, from: bar) else {
+                    complete = false
+                    continue
+                }
+                for item in items {
                     applyStatusItemScanTimeout(to: item)
                     guard let target = target(
                             from: item,
                             clippingRect: nil,
                             applicationInfoByPID: applicationInfoByPID
-                          ),
-                          markerX.map({ target.appKitFrame.maxX <= $0 + 1 }) ?? true else {
+                          ) else {
+                        complete = false
                         continue
                     }
+                    guard markerX.map({ target.appKitFrame.maxX <= $0 + 1 }) ?? true else { continue }
                     targetsByKey[key(for: target)] = target
                 }
             }
+            if complete { completeOwners.insert(app.processIdentifier) }
         }
 
         let elapsedMilliseconds = (CFAbsoluteTimeGetCurrent() - startedAt) * 1000
@@ -290,7 +315,23 @@ enum MenuBarProxyScanner {
             elapsedMilliseconds
         )
 
-        return Array(targetsByKey.values).sorted { $0.appKitFrame.minX < $1.appKitFrame.minX }
+        return .init(targets: Array(targetsByKey.values).sorted { $0.appKitFrame.minX < $1.appKitFrame.minX },
+                     completeOwners: completeOwners)
+    }
+
+    private static func statusItemElements(_ attribute: String, from element: AXUIElement) -> [AXUIElement]? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return nil }
+        return statusItemElements(from: value)
+    }
+
+    static func statusItemElements(from value: CFTypeRef?) -> [AXUIElement]? {
+        // AXExtrasMenuBar normally returns a single element; AXChildren returns
+        // an array. Preserve both shapes while distinguishing failure from [].
+        if let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
+            return [value as! AXUIElement]
+        }
+        return value as? [AXUIElement]
     }
 
     static func bestTarget(near point: NSPoint, in appKitRect: NSRect) -> MenuBarProxyTarget? {
@@ -584,7 +625,8 @@ enum MenuBarProxyScanner {
             processIdentifier: pid,
             bundleIdentifier: bundleIdentifier,
             appName: appName,
-            icon: applicationInfo?.icon ?? app?.icon
+            icon: applicationInfo?.icon ?? app?.icon,
+            identifier: stringAttribute(kAXIdentifierAttribute, from: element) ?? ""
         )
     }
 
@@ -1342,16 +1384,5 @@ enum MenuBarProxyScanner {
         return score
     }
 
-    private static func key(for target: MenuBarProxyTarget) -> String {
-        let frame = target.appKitFrame
-        return [
-            String(Int(frame.minX.rounded())),
-            String(Int(frame.minY.rounded())),
-            String(Int(frame.width.rounded())),
-            String(Int(frame.height.rounded())),
-            target.role,
-            target.title,
-            target.description
-        ].joined(separator: ":")
-    }
+    private static func key(for target: MenuBarProxyTarget) -> MenuBarTargetIdentity { target.identity }
 }

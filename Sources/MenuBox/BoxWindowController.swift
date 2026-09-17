@@ -30,6 +30,7 @@ final class BoxWindowController {
     private let settingsStore: SettingsStore
     var onForwardedClick: ((MenuBarProxyClick, CGMouseButton) -> Void)?
     var onClose: (() -> Void)?
+    var onMenuInteractionEnded: (() -> Void)?
     private(set) var isMenuInteractionActive = false
 
     init(settingsStore: SettingsStore) {
@@ -46,8 +47,10 @@ final class BoxWindowController {
     }
 
     func endMenuInteraction() {
+        let wasActive = isMenuInteractionActive
         isMenuInteractionActive = false
         suppressDismissUntil = nil
+        if wasActive { onMenuInteractionEnded?() }
     }
 
     func show(
@@ -117,9 +120,10 @@ final class BoxWindowController {
         anchorFrame: NSRect,
         screen: NSScreen,
         proxyTargets: [MenuBarProxyTarget],
-        statusText: String? = nil
+        statusText: String? = nil,
+        reusingPanel: Bool = false
     ) {
-        close()
+        if !reusingPanel { close() }
 
         let padding = BoxLayout.gridPadding
         let iconSize = CGFloat(settingsStore.settings.boxIconSize)
@@ -149,7 +153,9 @@ final class BoxWindowController {
         )
         let frame = MenuBarGeometry.clamp(proposed, to: screen.visibleFrame.insetBy(dx: 8, dy: 8))
 
-        let panel = FloatingPanel(contentRect: frame)
+        let existingPanel = reusingPanel ? self.panel : nil
+        let panel = existingPanel ?? FloatingPanel(contentRect: frame)
+        if existingPanel != nil { panel.setFrame(frame, display: true) }
         panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 3)
         panel.collectionBehavior = NSWindow.CollectionBehavior([.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle])
         panel.backgroundColor = NSColor.clear
@@ -178,7 +184,20 @@ final class BoxWindowController {
         panel.orderFrontRegardless()
         self.panel = panel
 
-        installDismissMonitors(panel: panel)
+        if existingPanel == nil { installDismissMonitors(panel: panel) }
+    }
+
+    func refreshProxyTargets(anchorFrame: NSRect, screen: NSScreen, proxyTargets: [MenuBarProxyTarget]) {
+        guard isShowing, !isMenuInteractionActive, activeProxyMenu == nil else { return }
+        if let content = iconStripView,
+           content.proxyTargets.map(\.identity) == proxyTargets.map(\.identity),
+           content.proxyTargets.map(\.displayName) == proxyTargets.map(\.displayName) {
+            // Refresh routing references without recreating the window or
+            // cancelling a menu request when only AX coordinates have changed.
+            content.proxyTargets = proxyTargets
+            return
+        }
+        showProxyTargets(anchorFrame: anchorFrame, screen: screen, proxyTargets: proxyTargets, reusingPanel: true)
     }
 
     func showStatus(_ text: String, duration: TimeInterval = 2.8) {
@@ -841,7 +860,7 @@ final class IconStripView: NSView {
     }
 
     private func cellRect(for target: MenuBarProxyTarget) -> NSRect? {
-        targetCells().first { $0.target === target }?.rect
+        targetCells().first { $0.target.identity == target.identity }?.rect
     }
 
     private func targetCells() -> [(target: MenuBarProxyTarget, rect: NSRect)] {

@@ -21,7 +21,7 @@ private enum ProxyTargetCacheTiming {
     static let launchWarmupDelays: [TimeInterval] = [0.35, 1, 2, 4, 8, 15]
     static let appChangeRefreshDelays: [TimeInterval] = [0.75, 2, 5, 10, 20]
     static let environmentRefreshDelays: [TimeInterval] = [1, 3]
-    static let periodicRefreshInterval: TimeInterval = 30
+    static let periodicRefreshInterval: TimeInterval = 5
 }
 
 private enum ApplicationActivationTiming {
@@ -101,9 +101,14 @@ final class MenuBoxController: NSObject {
         hiding.onChange = { [weak self] hidden, error in
             guard let self else { return }
             self.isHidden = hidden
-            if hidden { self.proxyTargetScanTask?.cancel() }
             self.statusItem?.button?.toolTip = error ?? "MenuBox"
             if let error { self.showHidingError(error) }
+            if error == nil {
+                self.renderCachedProxyTargetsIfBoxVisible()
+                // The verified plan may now include an app whose icon appeared
+                // after launch. Its AX inventory can be read while still hidden.
+                self.refreshProxyTargetCache(updateVisibleBox: self.boxWindowController.isShowing)
+            }
         }
         return hiding
     }()
@@ -117,8 +122,10 @@ final class MenuBoxController: NSObject {
     private var proxyTargetRefreshWorkItems: [DispatchWorkItem] = []
     private var proxyTargetPeriodicRefreshTimer: Timer?
     private var proxyTargetWarmupAttempt = 0
-    private var cachedProxyTargets: [MenuBarProxyTarget] = []
+    private var targetInventory = MenuBarTargetInventory()
+    private var cachedProxyTargets: [MenuBarProxyTarget] { targetInventory.targets }
     private var cachedProxyTargetsLoadedAt: Date?
+    private var isStopping = false
 
     init(checkForUpdates: (() -> Void)? = nil) {
         self.checkForUpdates = checkForUpdates
@@ -141,6 +148,9 @@ final class MenuBoxController: NSObject {
         }
         boxWindowController.onClose = { [weak self] in
             self?.hiddenMenuTask?.cancel()
+        }
+        boxWindowController.onMenuInteractionEnded = { [weak self] in
+            DispatchQueue.main.async { self?.renderCachedProxyTargetsIfBoxVisible() }
         }
 
         configureMainStatusItem()
@@ -393,6 +403,11 @@ final class MenuBoxController: NSObject {
     }
 
     func stop() {
+        isStopping = true
+        proxyTargetScanTask?.cancel()
+        proxyTargetPeriodicRefreshTimer?.invalidate()
+        proxyTargetWarmupWorkItem?.cancel()
+        proxyTargetRefreshWorkItems.forEach { $0.cancel() }
         permissions.stop()
         if usesNativeHiding { nativeHiding.stop() }
         autoHideTimer?.invalidate()
@@ -646,11 +661,10 @@ final class MenuBoxController: NSObject {
         )
         scheduleAutoHideIfNeeded()
         refreshProxyTargetCache(
-            anchorFrame: anchorFrame,
-            tapeFrame: tapeFrame,
-            updateVisibleBox: !hasLoadedCache || cachedTargets.isEmpty,
+            updateVisibleBox: true,
             retryWarmupIfEmpty: true
         )
+        if usesNativeHiding { nativeHiding.environmentChanged(reason: "Box opened") }
     }
 
     private func startProxyTargetCacheWarmup() {
@@ -663,19 +677,20 @@ final class MenuBoxController: NSObject {
         proxyTargetPeriodicRefreshTimer?.invalidate()
         let timer = Timer(timeInterval: ProxyTargetCacheTiming.periodicRefreshInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
+            if self.usesNativeHiding { self.nativeHiding.environmentChanged(reason: "status item inventory") }
             self.refreshProxyTargetCache(
                 updateVisibleBox: self.boxWindowController.isShowing,
                 retryWarmupIfEmpty: true
             )
         }
-        timer.tolerance = 5
+        timer.tolerance = 1
         proxyTargetPeriodicRefreshTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
     private func scheduleProxyTargetCacheWarmupAttempt() {
         proxyTargetWarmupWorkItem?.cancel()
-        guard cachedProxyTargets.isEmpty,
+        guard proxyTargetCacheNeedsWarmup,
               proxyTargetWarmupAttempt < ProxyTargetCacheTiming.launchWarmupDelays.count else {
             return
         }
@@ -684,7 +699,7 @@ final class MenuBoxController: NSObject {
         proxyTargetWarmupAttempt += 1
 
         let workItem = DispatchWorkItem { [weak self] in
-            guard let self, self.cachedProxyTargets.isEmpty else { return }
+            guard let self, self.proxyTargetCacheNeedsWarmup else { return }
             self.refreshProxyTargetCache(
                 updateVisibleBox: false,
                 retryWarmupIfEmpty: true
@@ -699,6 +714,7 @@ final class MenuBoxController: NSObject {
         proxyTargetRefreshWorkItems = delays.map { delay in
             let workItem = DispatchWorkItem { [weak self] in
                 guard let self else { return }
+                if self.usesNativeHiding { self.nativeHiding.environmentChanged(reason: "delayed item registration") }
                 self.refreshProxyTargetCache(
                     updateVisibleBox: self.boxWindowController.isShowing,
                     retryWarmupIfEmpty: true
@@ -710,20 +726,12 @@ final class MenuBoxController: NSObject {
     }
 
     private func refreshProxyTargetCache(
-        anchorFrame: NSRect? = nil,
-        tapeFrame: NSRect? = nil,
         updateVisibleBox: Bool,
         retryWarmupIfEmpty: Bool = false
     ) {
-        if usesNativeHiding && (nativeHiding.isHidden || nativeHiding.isTransitioning) { return }
-        guard ClickForwarder.accessibilityTrusted else {
+        guard !isStopping, proxyTargetScanTask == nil, ClickForwarder.accessibilityTrusted else {
             return
         }
-
-        let resolvedAnchorFrame = anchorFrame ?? statusItem?.button?.window?.frame
-        let resolvedTapeFrame = tapeFrame ?? markerFrame
-
-        proxyTargetScanTask?.cancel()
         let excludedPID = ProcessInfo.processInfo.processIdentifier
         let runningApplications = MenuBarProxyScanner.runningApplicationInfo(
             excludingProcessIdentifier: excludedPID
@@ -731,72 +739,66 @@ final class MenuBoxController: NSObject {
         let startedAt = Date()
 
         proxyTargetScanTask = Task { [weak self] in
-            let targets = await Task.detached(priority: updateVisibleBox ? .userInitiated : .utility) {
-                MenuBarProxyScanner.statusItemTargets(
+            let worker = Task.detached(priority: updateVisibleBox ? .userInitiated : .utility) {
+                MenuBarProxyScanner.scanStatusItems(
                     runningApplications: runningApplications
                 )
-            }.value
+            }
+            let scan = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
 
             guard !Task.isCancelled else { return }
 
             await MainActor.run { [weak self] in
-                guard let self else { return }
-                if self.usesNativeHiding && (self.nativeHiding.isHidden || self.nativeHiding.isTransitioning) { return }
-
-                if !targets.isEmpty || updateVisibleBox {
-                    self.cachedProxyTargets = targets
-                    self.cachedProxyTargetsLoadedAt = Date()
-                }
+                guard let self, !self.isStopping else { return }
+                self.proxyTargetScanTask = nil
+                let owners = Dictionary(uniqueKeysWithValues:
+                    MenuBarProxyScanner.runningApplicationInfo(excludingProcessIdentifier: excludedPID)
+                        .map { ($0.processIdentifier, $0.bundleIdentifier) })
+                self.targetInventory.merge(scan.targets, runningOwners: owners, completeOwners: scan.completeOwners,
+                    preservingApplications: self.usesNativeHiding ? self.nativeHiding.hiddenApplications : [])
+                self.cachedProxyTargetsLoadedAt = Date()
                 NSLog(
-                    "[MenuBox] Proxy target cache refreshed %ld targets in %.1fms",
-                    targets.count,
+                    "[MenuBox] Proxy inventory scanned %ld targets; retained %ld in %.1fms",
+                    scan.targets.count, self.cachedProxyTargets.count,
                     Date().timeIntervalSince(startedAt) * 1000
                 )
 
                 if retryWarmupIfEmpty {
-                    if targets.isEmpty {
+                    if self.proxyTargetCacheNeedsWarmup {
                         self.scheduleProxyTargetCacheWarmupAttempt()
                     } else {
                         self.proxyTargetWarmupWorkItem?.cancel()
                     }
                 }
 
-                guard updateVisibleBox,
-                      self.boxWindowController.isShowing,
-                      !self.boxWindowController.isMenuInteractionActive,
-                      let resolvedAnchorFrame,
-                      let resolvedTapeFrame,
-                      let resolvedScreen = MenuBarGeometry.screen(
-                        containing: NSPoint(x: resolvedAnchorFrame.midX, y: resolvedAnchorFrame.midY)
-                      ) else {
-                    return
-                }
-
-                self.boxWindowController.showProxyTargets(
-                    anchorFrame: resolvedAnchorFrame,
-                    screen: resolvedScreen,
-                    proxyTargets: self.cachedProxyTargets(before: resolvedTapeFrame)
-                )
-                self.scheduleAutoHideIfNeeded()
+                // Resolve membership and the anchor now, not from coordinates
+                // captured before this asynchronous scan or a display change.
+                self.renderCachedProxyTargetsIfBoxVisible()
             }
         }
     }
 
     private func cachedProxyTargets(before tapeFrame: NSRect) -> [MenuBarProxyTarget] {
-        return cachedProxyTargets
-            .filter {
-                if usesNativeHiding && nativeHiding.isHidden {
-                    return nativeHiding.hiddenApplications.contains($0.bundleIdentifier)
-                }
-                return $0.appKitFrame.maxX <= tapeFrame.minX + 1
+        if usesNativeHiding {
+            if nativeHiding.isHidden {
+                return targetInventory.selected(applications: nativeHiding.hiddenApplications)
             }
+            // Share the same hosted section and multi-display validation as the
+            // hiding backend. Overflow AX coordinates cannot classify membership.
+            guard !nativeHiding.isTransitioning,
+                  let snapshot = try? NativeMenuBarSnapshot.capture(),
+                  let plan = try? snapshot.plan() else { return [] }
+            return targetInventory.selected(applications: plan.applicationKeys)
+        }
+        return cachedProxyTargets
+            .filter { $0.appKitFrame.maxX <= tapeFrame.minX + 1 }
             .sorted { $0.appKitFrame.minX < $1.appKitFrame.minX }
     }
 
     private func removeProxyTargets(processIdentifier: pid_t) {
         guard processIdentifier > 0 else { return }
         let oldCount = cachedProxyTargets.count
-        cachedProxyTargets.removeAll { $0.processIdentifier == processIdentifier }
+        targetInventory.remove(processIdentifier: processIdentifier)
         guard cachedProxyTargets.count != oldCount else { return }
 
         cachedProxyTargetsLoadedAt = Date()
@@ -804,19 +806,25 @@ final class MenuBoxController: NSObject {
     }
 
     private func renderCachedProxyTargetsIfBoxVisible() {
-        guard boxWindowController.isShowing,
+        guard !isStopping, boxWindowController.isShowing,
+              !boxWindowController.isMenuInteractionActive,
               let anchorFrame = statusItem?.button?.window?.frame,
               let tapeFrame = markerFrame,
               let screen = MenuBarGeometry.screen(containing: NSPoint(x: anchorFrame.midX, y: anchorFrame.midY)) else {
             return
         }
 
-        boxWindowController.showProxyTargets(
+        boxWindowController.refreshProxyTargets(
             anchorFrame: anchorFrame,
             screen: screen,
             proxyTargets: cachedProxyTargets(before: tapeFrame)
         )
-        scheduleAutoHideIfNeeded()
+    }
+
+    private var proxyTargetCacheNeedsWarmup: Bool {
+        if cachedProxyTargets.isEmpty { return true }
+        guard usesNativeHiding, nativeHiding.isHidden else { return false }
+        return !nativeHiding.hiddenApplications.isSubset(of: Set(cachedProxyTargets.map(\.bundleIdentifier)))
     }
 
     private func isQuitMenuSelection(_ selection: MenuBarProxyMenuSelection) -> Bool {
