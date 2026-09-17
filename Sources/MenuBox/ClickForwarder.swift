@@ -286,7 +286,13 @@ enum ClickForwarder {
     }
 
     static func openFullDiskAccessSettings() {
-        openSystemSettings(path: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+        DispatchQueue.global(qos: .userInitiated).async {
+            FullDiskAccessRequest.perform(access: FullDiskAccessProbe.read()) {
+                DispatchQueue.main.async {
+                    openSystemSettings(path: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+                }
+            }
+        }
     }
 
     private static func openSystemSettings(path: String) {

@@ -6,6 +6,9 @@ enum MenuBoxApplication {
     private static let delegate = AppDelegate()
 
     static func main() {
+        if CommandLine.arguments.contains(FullDiskAccessRequest.helperArgument) {
+            exit(FullDiskAccessRequest.runHelper())
+        }
         if CommandLine.arguments.contains("--menubox-visibility-recovery") {
             exit(NativeMenuBarRecovery.runHelper())
         }

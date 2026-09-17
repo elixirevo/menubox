@@ -2,6 +2,8 @@
 
 Settings → Permissions provides the permission name, its purpose, current access status, a button for the matching System Settings page, and a Finder shortcut to the running app bundle. If macOS asks for a restart after a change, follow that prompt.
 
+The Full Disk Access button attempts to register MenuBox in the permission list before opening System Settings. Turn on MenuBox's switch there; no drag window is shown. Registration is attempted only on this explicit action and skipped when access is already available. It is best-effort: a missing protected directory or OS behavior change must not prevent System Settings from opening. **Show in Finder** and the system **+** button remain a fallback if the app is missing. Run an installed `.app` bundle so macOS can associate the request with MenuBox.
+
 - Accessibility is needed to discover menu bar items and open menus from Box. On macOS 27 the page uses the new “Device Control and Data Access” name alongside “Accessibility.”
 - Full Disk Access is shown only for the macOS 27 preferences backend. The explanation states both why MenuBox uses it and that this system permission grants broader access to other apps' data.
 - Screen Recording is not required by the current app-icon/menu flow and is not added to setup.
@@ -16,11 +18,22 @@ The tab is selected explicitly even if the existing Settings window was on Gener
 
 ## Access checks
 
-Accessibility uses `AXIsProcessTrusted`. Full Disk Access has no dependency here on a TCC database query: the check performs an uncached, read-only access to the Control Center preferences file already needed by the hiding backend. It does not read unrelated protected user data or write settings as a permission test.
+Accessibility uses `AXIsProcessTrusted`. Periodic Full Disk Access checks perform an uncached, read-only access to the Control Center preferences file already needed by the hiding backend. They do not read unrelated protected user data or write settings as a permission test.
+
+The explicit registration action starts the same app executable with `--menubox-register-full-disk-access`. This branch runs before AppKit, the app delegate, recovery, or capability probes. In that fresh process it attempts a nonrecursive directory listing of `~/Library/Containers/com.apple.stocks`, following the behavior documented by [FullDiskAccess](https://github.com/inket/FullDiskAccess). macOS can record the denied request as a disabled Full Disk Access entry for MenuBox. The returned names are discarded; file contents are never read, and the TCC database is neither inspected nor modified directly. This result is not used to determine permission status or resume pending actions. Only the existing capability probe can mark access ready.
+
+The separate process matters on macOS 27: first probing the Control Center preferences in the main process can leave a cached preflight denial, after which accessing the Stocks container does not create the Full Disk Access list entry. A fresh helper process avoids that order-dependent behavior. The parent waits off the main thread for at most three seconds; failure or timeout still opens System Settings. The helper does not run MenuBox's normal startup or change any permission switches.
 
 “Ready” means this app can read that resource. A file access denial is reported as “Access needed.” A missing file or other read failure is reported separately as “Unable to check,” rather than asserting the user denied permission. Preference schema compatibility remains a separate backend concern.
 
 The permission itself is enabled in macOS System Settings. Apple's [privacy settings guide](https://support.apple.com/guide/mac-help/mchl211c911f/mac) describes adding apps to Full Disk Access, and [Advances in macOS Security](https://developer.apple.com/videos/play/wwdc2019/701/) describes checking access to the needed resource and directing users to system privacy settings.
+
+## Automatic registration verification — 2026-09-17
+
+- On macOS 27.0 (26A428), a separately identified test `.app` using the production registration helper appeared in the Full Disk Access list with its switch **off**. No permission was granted. The test bundle had to be registered with Launch Services; a temporary unregistered bundle produced a TCC entry that System Settings could not resolve into an app row.
+- The initial test covered a fresh process only. Repeating the actual app's startup order (reading the Control Center preferences before registration) reproduced the missing entry. Repeating registration in a new process of the same app produced an entry with its switch off.
+- After installing the corrected release at `/Applications/MenuBox.app`, clicking its **Full Disk Access → Open System Settings** button visibly added **MenuBox.app** with its switch **off**. No Full Disk Access grant was made. The rebuilt ad-hoc app also reported that Accessibility needed approval again.
+- The release build, strict bundle signature verification, and 14 targeted tests passed. Tests cover registration-before-navigation, denied/missing directory handling, skipping already available access, helper arguments, failed/missing executables, a stalled helper timeout, and the existing permission status/recovery policy.
 
 ## Verification — 2026-09-16
 
