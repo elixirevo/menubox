@@ -222,7 +222,7 @@ struct AppSettings: Codable, Equatable {
         boxMaxRows: 2,
         boxMaxColumns: 10,
         boxUIEnabled: true,
-        boxStatusMessagesEnabled: true,
+        boxStatusMessagesEnabled: false,
         shortcutsEnabled: true,
         boxIconLeftClickAction: .toggleHiddenIcons,
         boxIconRightClickAction: .showBoxUI,
@@ -284,7 +284,7 @@ struct AppSettings: Codable, Equatable {
         boxMaxRows = try container.decodeIfPresent(Int.self, forKey: .boxMaxRows) ?? 2
         boxMaxColumns = try container.decodeIfPresent(Int.self, forKey: .boxMaxColumns) ?? 10
         boxUIEnabled = try container.decodeIfPresent(Bool.self, forKey: .boxUIEnabled) ?? true
-        boxStatusMessagesEnabled = try container.decodeIfPresent(Bool.self, forKey: .boxStatusMessagesEnabled) ?? true
+        boxStatusMessagesEnabled = try container.decodeIfPresent(Bool.self, forKey: .boxStatusMessagesEnabled) ?? false
         shortcutsEnabled = try container.decodeIfPresent(Bool.self, forKey: .shortcutsEnabled) ?? true
         boxIconLeftClickAction = try container.decodeIfPresent(BoxIconAction.self, forKey: .boxIconLeftClickAction) ?? .toggleHiddenIcons
         boxIconRightClickAction = try container.decodeIfPresent(BoxIconAction.self, forKey: .boxIconRightClickAction) ?? .showBoxUI
