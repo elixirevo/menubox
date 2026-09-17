@@ -24,3 +24,18 @@ Release compilation uses the macOS 26.5 SDK and succeeds. Strict signature valid
 This inventory change does not implement moving an overflowed dynamic-menu icon into the visible menu bar. That is a separate menu-routing issue.
 
 The first validation build incorrectly accepted only arrays for `AXExtrasMenuBar`, which commonly returns one AX element. That introduced an empty Box. The corrected build accepts both shapes; normalization regressions and a live scan were added before reinstalling.
+
+## Adding icons without revealing the section
+
+The initial inventory fix still used `restoreVisibility` and a full replan after a stable membership change. That let a late-registering app join Box, but visibly revealed all existing icons. New membership on an unchanged display topology now extends the active transaction in place:
+
+- The original marker's nearest protected right-side neighbor provides the live boundary while the marker is hidden. Current hosted frames classify new items on every display. Old per-app AX frames are not used for eligibility.
+- Existing hidden applications and system controls remain selected. New right-side items become protected; overlap, mixed-side ownership, missing protected controls, or incomplete observations defer the update without revealing the section.
+- New applications and supported system controls extend the recovery journal atomically before any visibility write. The original flags are reconstructed in memory only; they are never applied to macOS for discovery. Existing original values, ownership corrections, unrelated edits and system-control restoration information are retained.
+- Once journaled, the controller retains the expanded plan through apply retries and verifies it using the existing reconciliation loop. The marker stays hidden throughout. A changed display topology still uses the existing full replan path.
+- A new app may briefly display its own icon before macOS exposes enough information to classify it. Existing selected icons no longer need to reappear for this process.
+
+Fourteen additional unit regressions cover in-place addition, visible right-side additions, unsafe/ambiguous updates, apply retries, simultaneous wake resets, repeated additions, collapsed positions, cross-display disagreement, system controls, and restoration before/after applying an extended journal. The updated suite ran 116 tests: 114 passed and two opt-in live tests were skipped. The read-only inventory test was then run separately against the two live fixtures and passed.
+
+
+Installed extension validation (`artifacts/macos27/inplace-addition-v1/`): two local fixture apps registered their icons after launch. The backend extended the hidden section at 11:11:33 and 11:11:54 UTC with no restore or marker reveal. Across 651 hosted AX snapshots over 79.98 seconds, none of the 10 pre-existing selected apps reappeared; each observed menu bar retained exactly one MenuBox control, and RunCat, kTranslate and RocketFuel remained present. The maximum sample gap was 0.233 seconds; these are AX observations, not frame-level pixel measurements. Both new hidden owners were found by a separate live inventory scan. The expanded recovery journal retained all 10 original flags and added exactly the two new owners. Both fixtures terminated automatically afterward. `/Applications/MenuBox.app`, `dist/MenuBox.app` and the saved candidate have matching executable hashes and pass strict signature verification.

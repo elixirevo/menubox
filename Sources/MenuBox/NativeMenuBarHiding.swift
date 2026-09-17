@@ -9,6 +9,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         var apply: (NativeMenuBarSnapshot, MenuBarSectionPlanner.Plan) throws -> Void
         var restore: () throws -> Void
         var reapply: (NativeMenuBarSnapshot, MenuBarSectionPlanner.Plan) throws -> Void
+        var stageExtension: ((NativeMenuBarSnapshot, MenuBarSectionPlanner.Plan, MenuBarSectionPlanner.Plan) throws -> Void)? = nil
         var temporarilyReveal: ((String, NativeMenuBarSnapshot) throws -> Void)? = nil
         var prepare: (() async throws -> Void)?
         var log: ((String) -> Void)?
@@ -20,7 +21,8 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                   reapply: { snapshot, plan in
                       if NativeMenuBarRecovery.hasPending { try NativeMenuBarRecovery.reapply() }
                       else { try NativeMenuBarHiding.applyVisibility(snapshot, plan) }
-                  }, temporarilyReveal: NativeMenuBarRecovery.temporarilyReveal)
+                  }, stageExtension: NativeMenuBarHiding.stageExtension,
+                  temporarilyReveal: NativeMenuBarRecovery.temporarilyReveal)
         }
     }
     struct Timing {
@@ -41,6 +43,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     private var helperSetup: Task<Void, Error>?
     private var keepAlive: FileHandle?
     private var baseline: NativeMenuBarSnapshot?
+    private var boundaryReference: NativeMenuBarSnapshot?
     private var appliedPlan: MenuBarSectionPlanner.Plan?
     private var checkRequested = false
     private var temporaryReveal: (token: UUID, bundle: String)?
@@ -84,6 +87,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                 // Record the applied transaction before awaiting verification so
                 // sleep during verification can retain it and its original journal.
                 self.baseline = snapshot
+                self.boundaryReference = snapshot
                 self.appliedPlan = plan
                 self.hiddenApplications = plan.applicationKeys
                 self.hiddenSystemItems = plan.systemItemIDs
@@ -105,8 +109,8 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         }
     }
 
-    /// Observe an existing transaction without revealing icons. Only a confirmed
-    /// change of membership/displays needs the marker restored for a new plan.
+    /// Observe an existing transaction without revealing icons. New items extend
+    /// it in place; only a changed display topology requires a visible new plan.
     private func startReconciliation(delay: UInt64) {
         guard wantsHidden, !isSuspended, let baseline, let plan = appliedPlan else { return }
         isTransitioning = true
@@ -145,13 +149,51 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                         nextDelay = self.timing.verification
                     case .layoutChanged:
                         targetsStillVisible = false
+                        if actual.bars.flatMap(\.items).contains(where: {
+                            plan.applicationKeys.contains($0.bundle) || plan.systemItemIDs.contains($0.id) || $0.id == "MenuBox.marker"
+                        }) {
+                            targetsStillVisible = true
+                            changedLayout = nil
+                            try self.backend.reapply(baseline, plan)
+                            nextDelay = self.timing.verification
+                            continue
+                        }
                         let signature = actual.membershipSignature
                         if changedLayout == signature {
-                            self.trace("stable layout change: replan section")
-                            if self.restoreVisibility(preservingIntent: true) {
-                                self.startAttempt(delay: self.timing.initial)
+                            if Set(actual.bars.map(\.id)) != Set(baseline.bars.map(\.id)) {
+                                self.trace("display topology changed: replan section")
+                                if self.restoreVisibility(preservingIntent: true) {
+                                    self.startAttempt(delay: self.timing.initial)
+                                }
+                                return
                             }
-                            return
+                            do {
+                                guard let reference = self.boundaryReference else { throw NativeMenuBarSnapshot.Failure.incomplete }
+                                let update = try actual.addingItemsWhileHidden(comparedTo: baseline,
+                                    boundaryReference: reference, plan: plan)
+                                let extendsHiding = update.plan.applicationKeys != plan.applicationKeys || update.plan.systemItemIDs != plan.systemItemIDs
+                                if extendsHiding {
+                                    guard let stage = self.backend.stageExtension else { throw NativeMenuBarSnapshot.Failure.incomplete }
+                                    try stage(update.baseline, plan, update.plan)
+                                }
+                                // Once journaled, keep the expanded intent even
+                                // if applying needs a retry. Never restore first.
+                                self.baseline = update.baseline
+                                self.appliedPlan = update.plan
+                                self.hiddenApplications = update.plan.applicationKeys
+                                self.hiddenSystemItems = update.plan.systemItemIDs
+                                if extendsHiding {
+                                    do { try self.backend.reapply(update.baseline, update.plan) }
+                                    catch { self.trace("extended transaction awaiting apply: \(error)") }
+                                }
+                                self.trace("extended section without reveal: " + update.plan.applicationKeys.subtracting(plan.applicationKeys).sorted().joined(separator: ","))
+                                self.startReconciliation(delay: self.timing.verification)
+                                return
+                            } catch {
+                                // Incomplete hosts or ambiguous ownership are
+                                // not permission to expose every hidden item.
+                                self.trace("section update deferred; keep hidden: \(error)")
+                            }
                         }
                         changedLayout = signature
                         nextDelay = self.timing.environment
@@ -185,8 +227,26 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     }
 
     private static func applyVisibility(_ snapshot: NativeMenuBarSnapshot, _ plan: MenuBarSectionPlanner.Plan) throws {
+        guard let journal = try visibilityJournal(snapshot, plan) else { return }
+        let preferences = try NativeMenuBarPreferences()
+        try NativeMenuBarRecovery.save(journal)
+        try preferences.write(journal.written, replacing: journal.original)
+        try NativeSystemMenuBarPreferences.apply(journal.systemChanges ?? [])
+    }
+
+    private static func stageExtension(_ snapshot: NativeMenuBarSnapshot, _ old: MenuBarSectionPlanner.Plan,
+                                       _ new: MenuBarSectionPlanner.Plan) throws {
+        if NativeMenuBarRecovery.hasPending {
+            try NativeMenuBarRecovery.stageExtension(applications: new.applicationKeys.subtracting(old.applicationKeys),
+                systemItems: new.systemItemIDs.subtracting(old.systemItemIDs), snapshot: snapshot)
+        } else if let journal = try visibilityJournal(snapshot, new) {
+            try NativeMenuBarRecovery.save(journal)
+        }
+    }
+
+    private static func visibilityJournal(_ snapshot: NativeMenuBarSnapshot, _ plan: MenuBarSectionPlanner.Plan) throws -> NativeMenuBarRecovery.Journal? {
         let applications = plan.applicationKeys
-        guard !applications.isEmpty || !plan.systemItemIDs.isEmpty else { return }
+        guard !applications.isEmpty || !plan.systemItemIDs.isEmpty else { return nil }
         let systemChanges = try NativeSystemMenuBarPreferences.prepare(plan.systemItemIDs)
         let preferences = try NativeMenuBarPreferences()
         let document = try preferences.read()
@@ -198,10 +258,8 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             keys: keys, executables: snapshot.executables, in: document)
         let data = try NativeMenuBarPreferences.changing(document, allowed: changes, includingSelfLocations: added)
         let previous = Dictionary(uniqueKeysWithValues: keys.map { ($0, document.records[$0]!.allowed) })
-        try NativeMenuBarRecovery.save(.init(original: document.data, written: data,
-            previousAllowed: previous, addedSelfLocations: added, systemChanges: systemChanges))
-        try preferences.write(data, replacing: document.data)
-        try NativeSystemMenuBarPreferences.apply(systemChanges)
+        return .init(original: document.data, written: data,
+            previousAllowed: previous, addedSelfLocations: added, systemChanges: systemChanges)
     }
 
     private static func isTransient(_ error: Error) -> Bool {
@@ -282,6 +340,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             try backend.restore()
             isHidden = false
             baseline = nil
+            boundaryReference = nil
             appliedPlan = nil
             checkRequested = false
             hiddenApplications = []

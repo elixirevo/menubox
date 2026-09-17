@@ -14,6 +14,12 @@ final class NativeMenuBarHidingTests: XCTestCase {
         var errors: [String] = []
         var denied = false
         var includeSecond = false
+        var secondX: CGFloat = 35
+        var extensionDenied = false
+        var reapplyFailures = 0
+        var stageCount = 0
+        var markerReveals = 0
+        var appliedApplications = Set<String>()
         var temporaryApp: String?
 
         func snapshot() throws -> NativeMenuBarSnapshot {
@@ -29,9 +35,9 @@ final class NativeMenuBarHidingTests: XCTestCase {
                 ("MenuBox.main", own, 100), ("right", "right", 140),
                 ("focus", "com.apple.MenuBarAgent", 180)
             ]
-            if includeSecond { layout.append(("second", "second", 35)) }
+            if includeSecond { layout.append(("second", "second", secondX)) }
             let items = layout.filter { id, _, _ in
-                !(applicationsHidden && ["left", "second"].contains(id) && id != temporaryApp) &&
+                !(applicationsHidden && appliedApplications.contains(id) && id != temporaryApp) &&
                     !(markerHidden && id == "MenuBox.marker")
             }.map { id, bundle, x in
                 NativeMenuBarSnapshot.Item(id: id, bundle: bundle,
@@ -45,15 +51,28 @@ final class NativeMenuBarHidingTests: XCTestCase {
             let backend = NativeMenuBarHiding.Backend(capture: { _ in try self.snapshot() }, apply: { _, plan in
                 XCTAssertEqual(plan.applicationKeys, self.includeSecond ? ["left", "second"] : ["left"])
                 self.writes += 1
+                self.appliedApplications = plan.applicationKeys
                 self.applicationsHidden = true
-            }, restore: { self.restores += 1; self.applicationsHidden = false; self.temporaryApp = nil }, reapply: { _, _ in
+            }, restore: { self.restores += 1; self.applicationsHidden = false; self.temporaryApp = nil }, reapply: { _, plan in
+                if self.reapplyFailures > 0 {
+                    self.reapplyFailures -= 1
+                    throw NativeMenuBarPreferences.Failure.concurrentChange
+                }
                 self.writes += 1
+                self.appliedApplications = plan.applicationKeys
                 self.applicationsHidden = true
                 self.temporaryApp = nil
+            }, stageExtension: { _, old, new in
+                if self.extensionDenied { throw NativeMenuBarPreferences.Failure.shared("second") }
+                XCTAssertTrue(old.applicationKeys.isSubset(of: new.applicationKeys))
+                self.stageCount += 1
             }, temporarilyReveal: { bundle, _ in self.temporaryApp = bundle }, prepare: {}, log: { _ in })
             let hiding = NativeMenuBarHiding(backend: backend,
                 timing: .init(initial: initial, environment: 2_000_000, verification: 1_000_000, retries: retries))
-            hiding.setMarkerHidden = { self.markerHidden = $0 }
+            hiding.setMarkerHidden = {
+                if !$0 { self.markerReveals += 1 }
+                self.markerHidden = $0
+            }
             hiding.onChange = { _, error in if let error { self.errors.append(error) } }
             return hiding
         }
@@ -151,6 +170,98 @@ final class NativeMenuBarHidingTests: XCTestCase {
         hiding.environmentChanged()
         try await eventually { hiding.isHidden && !hiding.isTransitioning }
         XCTAssertEqual(bar.writes, 1)
+    }
+
+    func testDelayedIconRegistrationUpdatesHiddenMembershipWithoutUserReveal() async throws {
+        let bar = MenuBar(), hiding = bar.controller()
+        defer { hiding.stop() }
+        hiding.hide()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        let restores = bar.restores, markerReveals = bar.markerReveals
+        // The launch notification arrives before the app creates its status item.
+        hiding.environmentChanged(reason: "application launched")
+        try await eventually { !hiding.isTransitioning }
+        XCTAssertEqual(hiding.hiddenApplications, ["left"])
+        bar.includeSecond = true
+        hiding.environmentChanged(reason: "delayed item registration")
+        try await eventually { !hiding.isTransitioning && hiding.hiddenApplications.contains("second") }
+        XCTAssertTrue(hiding.isHidden)
+        XCTAssertTrue(hiding.wantsHidden)
+        XCTAssertTrue(bar.markerHidden)
+        XCTAssertEqual(bar.writes, 2)
+        XCTAssertEqual(bar.stageCount, 1)
+        XCTAssertEqual(bar.restores, restores)
+        XCTAssertEqual(bar.markerReveals, markerReveals)
+        XCTAssertTrue(bar.errors.isEmpty)
+    }
+
+    func testNewRightSideAppRemainsVisibleWithoutRestoringOrRewritingHiddenApps() async throws {
+        let bar = MenuBar(), hiding = bar.controller()
+        defer { hiding.stop() }
+        hiding.hide()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        let restores = bar.restores, reveals = bar.markerReveals
+        bar.secondX = 215
+        bar.includeSecond = true
+        hiding.environmentChanged()
+        try await eventually { !hiding.isTransitioning }
+        XCTAssertEqual(hiding.hiddenApplications, ["left"])
+        XCTAssertEqual(bar.writes, 1)
+        XCTAssertEqual(bar.stageCount, 0)
+        XCTAssertEqual(bar.restores, restores)
+        XCTAssertEqual(bar.markerReveals, reveals)
+    }
+
+    func testUnsafeOrAmbiguousNewItemNeverRevealsExistingSection() async throws {
+        for x: CGFloat in [35, 105] {
+            let bar = MenuBar(), hiding = bar.controller()
+            defer { hiding.stop() }
+            hiding.hide()
+            try await eventually { hiding.isHidden && !hiding.isTransitioning }
+            let restores = bar.restores, reveals = bar.markerReveals
+            bar.secondX = x
+            bar.includeSecond = true
+            bar.extensionDenied = true
+            hiding.environmentChanged()
+            try await eventually { !hiding.isTransitioning }
+            XCTAssertEqual(hiding.hiddenApplications, ["left"])
+            XCTAssertTrue(hiding.isHidden)
+            XCTAssertTrue(hiding.wantsHidden)
+            XCTAssertEqual(bar.writes, 1)
+            XCTAssertEqual(bar.restores, restores)
+            XCTAssertEqual(bar.markerReveals, reveals)
+        }
+    }
+
+    func testJournaledAdditionRetriesApplyWithoutLosingTheNewTarget() async throws {
+        let bar = MenuBar(), hiding = bar.controller()
+        defer { hiding.stop() }
+        hiding.hide()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        let restores = bar.restores
+        bar.includeSecond = true
+        bar.reapplyFailures = 1
+        hiding.environmentChanged()
+        try await eventually { !hiding.isTransitioning && hiding.hiddenApplications.contains("second") }
+        XCTAssertEqual(bar.stageCount, 1)
+        XCTAssertEqual(bar.appliedApplications, ["left", "second"])
+        XCTAssertEqual(bar.restores, restores)
+        XCTAssertTrue(bar.markerHidden)
+    }
+
+    func testWakeResetAndNewItemAreReconciledWithoutRestoringAllIcons() async throws {
+        let bar = MenuBar(), hiding = bar.controller()
+        defer { hiding.stop() }
+        hiding.hide()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        let restores = bar.restores
+        bar.includeSecond = true
+        bar.applicationsHidden = false
+        hiding.environmentChanged()
+        try await eventually { !hiding.isTransitioning && hiding.hiddenApplications.contains("second") }
+        XCTAssertEqual(bar.restores, restores)
+        XCTAssertEqual(bar.stageCount, 1)
+        XCTAssertEqual(bar.writes, 3)
     }
 
     func testPermissionFailureDoesNotCauseRepeatedHidingAttempts() async throws {

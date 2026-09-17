@@ -123,4 +123,81 @@ final class NativeMenuBarSnapshotTests: XCTestCase {
         XCTAssertEqual(try state(), .layoutChanged)
     }
 
+    private func hiddenBar(_ source: NativeMenuBarSnapshot.Bar) -> NativeMenuBarSnapshot.Bar {
+        .init(frame: source.frame, items: source.items.filter { !["one", "two", "MenuBox.marker"].contains($0.id) })
+    }
+
+    func testAddsCollapsedLeftItemsUsingLiveNeighborInsteadOfOldMarkerCoordinates() throws {
+        let before = NativeMenuBarSnapshot(bars: [bar(0)], executables: [:])
+        var hidden = hiddenBar(bar(0))
+        hidden.items[0] = item("MenuBox.main", own, 140)
+        hidden.items[1] = item("focus", "com.apple.MenuBarAgent", 180)
+        hidden.items += [item("new-one", "new-one", 110), item("new-two", "new-two", 110)]
+        let actual = NativeMenuBarSnapshot(bars: [hidden], executables: [:])
+        let update = try actual.addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan())
+        XCTAssertEqual(update.plan.applicationKeys, ["one", "two", "new-one", "new-two"])
+        hidden.items.removeAll { $0.bundle.hasPrefix("new-") }
+        XCTAssertEqual(try NativeMenuBarSnapshot(bars: [hidden], executables: [:]).hiddenState(
+            update.plan.applicationKeys, comparedTo: update.baseline, systemItems: []), .hidden)
+    }
+
+    func testConsecutiveAdditionsUseOriginalBoundaryAndKeepAllOwnershipReferences() throws {
+        let before = NativeMenuBarSnapshot(bars: [bar(0)], executables: [:])
+        var hidden = hiddenBar(bar(0))
+        hidden.items.append(item("third", "third", 65))
+        let first = try NativeMenuBarSnapshot(bars: [hidden], executables: [:])
+            .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan())
+        hidden.items.removeLast()
+        hidden.items.append(item("fourth", "fourth", 65))
+        let second = try NativeMenuBarSnapshot(bars: [hidden], executables: [:])
+            .addingItemsWhileHidden(comparedTo: first.baseline, boundaryReference: before, plan: first.plan)
+        XCTAssertEqual(second.plan.applicationKeys, ["one", "two", "third", "fourth"])
+        XCTAssertTrue(Set(second.baseline.bars[0].items.map(\.bundle)).isSuperset(of: second.plan.applicationKeys))
+    }
+
+    func testNewRightSideItemIsProtectedAndNeverSelected() throws {
+        let before = NativeMenuBarSnapshot(bars: [bar(0)], executables: [:])
+        var hidden = hiddenBar(bar(0))
+        hidden.items.append(item("new-right", "new-right", 170))
+        let update = try NativeMenuBarSnapshot(bars: [hidden], executables: [:])
+            .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan())
+        XCTAssertEqual(update.plan.applicationKeys, ["one", "two"])
+        XCTAssertTrue(update.plan.protectedItemsByDisplay[hidden.id]!.contains("new-right"))
+    }
+
+    func testRejectsNewApplicationOnDifferentSidesAcrossDisplays() throws {
+        let before = NativeMenuBarSnapshot(bars: [bar(-200), bar(0)], executables: [:])
+        var left = hiddenBar(bar(-200)), right = hiddenBar(bar(0))
+        left.items.append(item("new", "new", -170))
+        right.items.append(item("new", "new", 170))
+        XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [left, right], executables: [:])
+            .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan()))
+    }
+
+    func testRejectsNewItemOverlappingAnchorAndMissingProtectedItems() throws {
+        let before = NativeMenuBarSnapshot(bars: [bar(0)], executables: [:])
+        for x: CGFloat in [105, 30] {
+            var hidden = hiddenBar(bar(0))
+            hidden.items.append(item("new", "new", x))
+            if x == 30 { hidden.items.removeAll { $0.id == "focus" } }
+            XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [hidden], executables: [:])
+                .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan()))
+        }
+    }
+
+    func testNewSystemControlUsesIndividualIDAndMustAgreeAcrossDisplays() throws {
+        let before = NativeMenuBarSnapshot(bars: [bar(-200), bar(0)], executables: [:])
+        var left = hiddenBar(bar(-200)), right = hiddenBar(bar(0))
+        let id = NativeSystemMenuBarPreferences.Setting.nowPlaying.itemID
+        left.items.append(item(id, "com.apple.MenuBarAgent", -170))
+        right.items.append(item(id, "com.apple.MenuBarAgent", 30))
+        let update = try NativeMenuBarSnapshot(bars: [left, right], executables: [:])
+            .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan())
+        XCTAssertEqual(update.plan.applicationKeys, ["one", "two"])
+        XCTAssertEqual(update.plan.systemItemIDs, [id])
+        right.items[right.items.count - 1] = item(id, "com.apple.MenuBarAgent", 170)
+        XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [left, right], executables: [:])
+            .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan()))
+    }
+
 }

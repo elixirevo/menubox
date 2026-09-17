@@ -154,6 +154,76 @@ struct NativeMenuBarSnapshot {
         }.sorted().joined(separator: ";")
     }
 
+    struct HiddenSectionUpdate {
+        let baseline: NativeMenuBarSnapshot
+        let plan: MenuBarSectionPlanner.Plan
+    }
+
+    /// Locate additions relative to an original right-side neighbor while the
+    /// marker and selected items remain absent. Historical hidden items are
+    /// retained for ownership/recovery checks, never used as live click frames.
+    func addingItemsWhileHidden(comparedTo before: NativeMenuBarSnapshot,
+                                boundaryReference: NativeMenuBarSnapshot,
+                                plan: MenuBarSectionPlanner.Plan) throws -> HiddenSectionUpdate {
+        try verifyHidden(plan.applicationKeys, comparedTo: before, markerHidden: true,
+                         systemItems: plan.systemItemIDs)
+        guard Set(bars.map(\.id)) == Set(boundaryReference.bars.map(\.id)),
+              let first = bars.first else { throw Failure.incomplete }
+        let visibleIDs = Set(first.items.filter { !$0.isTransientSystemIndicator }.map(\.id))
+        guard bars.allSatisfy({ Set($0.items.filter { !$0.isTransientSystemIndicator }.map(\.id)) == visibleIDs }) else {
+            throw Failure.incomplete
+        }
+        var leftApps = Set<String>(), rightApps = Set<String>(), leftSystems = Set<String>(), rightSystems = Set<String>()
+        var updatedBars: [Bar] = []
+        for current in bars {
+            guard let old = before.bars.first(where: { $0.id == current.id }),
+                  let reference = boundaryReference.bars.first(where: { $0.id == current.id }),
+                  let marker = reference.items.first(where: { $0.id == "MenuBox.marker" }),
+                  let neighbor = reference.items.filter({ !$0.isTransientSystemIndicator &&
+                      $0.frame.minX >= marker.frame.maxX && $0.id != "MenuBox.marker" })
+                    .min(by: { $0.frame.minX < $1.frame.minX }),
+                  let anchor = current.items.first(where: { $0.id == neighbor.id }) else { throw Failure.boundary }
+            let known = Set(old.items.map(\.id))
+            for item in current.items where !known.contains(item.id) && !item.isTransientSystemIndicator {
+                guard current.frame.contains(item.frame), item.frame.width > 0, item.frame.height > 0,
+                      item.bundle != NativeMenuBarPreferences.ownBundle else { throw Failure.incomplete }
+                if item.frame.maxX <= anchor.frame.minX {
+                    if item.bundle.hasPrefix("com.apple.") { leftSystems.insert(item.id) }
+                    else { leftApps.insert(item.bundle) }
+                } else if item.frame.minX >= anchor.frame.maxX {
+                    if item.bundle.hasPrefix("com.apple.") { rightSystems.insert(item.id) }
+                    else { rightApps.insert(item.bundle) }
+                } else { throw Failure.boundary }
+            }
+            // Existing protected apps still belong to the visible side, even
+            // if another item of the same app has just appeared on the left.
+            rightApps.formUnion(current.items.filter {
+                known.contains($0.id) && $0.bundle != NativeMenuBarPreferences.ownBundle &&
+                    !$0.bundle.hasPrefix("com.apple.")
+            }.map(\.bundle))
+            let historical = old.items.filter {
+                plan.applicationKeys.contains($0.bundle) || plan.systemItemIDs.contains($0.id) || $0.id == "MenuBox.marker"
+            }
+            updatedBars.append(Bar(frame: current.frame, items: historical + current.items))
+        }
+        guard leftApps.isDisjoint(with: rightApps), leftSystems.isDisjoint(with: rightSystems) else { throw Failure.boundary }
+        let applications = plan.applicationKeys.union(leftApps)
+        let systems = plan.systemItemIDs.union(leftSystems)
+        let updated = NativeMenuBarSnapshot(bars: updatedBars,
+            executables: before.executables.merging(executables, uniquingKeysWith: { _, new in new }))
+        let protected = Dictionary(uniqueKeysWithValues: updatedBars.map { bar in
+            (bar.id, Set(bar.items.filter { !applications.contains($0.bundle) &&
+                !systems.contains($0.id) && !$0.isTransientSystemIndicator }.map(\.id)))
+        })
+        // New right-side items also need valid, non-overlapping protected order.
+        let protectedSnapshot = NativeMenuBarSnapshot(bars: bars.map { bar in
+            Bar(frame: bar.frame, items: bar.items.filter { !applications.contains($0.bundle) && !systems.contains($0.id) })
+        }, executables: executables)
+        try protectedSnapshot.verifyHidden(applications, comparedTo: updated, markerHidden: true, systemItems: systems)
+        return HiddenSectionUpdate(baseline: updated, plan: .init(applicationKeys: applications,
+            protectedItemsByDisplay: protected, systemItemIDs: systems))
+    }
+
     func hiddenState(_ applications: Set<String>, comparedTo before: NativeMenuBarSnapshot,
                      systemItems: Set<String>) throws -> HiddenState {
         guard Set(bars.map(\.id)) == Set(before.bars.map(\.id)) else { return .layoutChanged }

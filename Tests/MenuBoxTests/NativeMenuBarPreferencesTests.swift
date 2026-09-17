@@ -177,4 +177,71 @@ final class NativeMenuBarPreferencesTests: XCTestCase {
         XCTAssertEqual(shown.records["owner"]?.allowed, true)
     }
 
+    func testExtendedJournalKeepsExistingIconsHiddenAndRestoresBothOriginalFlags() throws {
+        let original = try document([("left", true, ["left"]), ("right", true, ["right"])])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: ["left": false])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: written, previousAllowed: ["left": true])
+        // The app creates its record later; an unrelated app was disabled meanwhile.
+        let current = try document([("left", false, ["left"]), ("right", false, ["right"]), ("new", true, ["new"])])
+        let extended = try NativeMenuBarRecovery.extending(journal, current: current,
+            applications: ["new"], visible: ["left", "right", "new"], executables: [:])
+        XCTAssertEqual(extended.previousAllowed, ["left": true, "new": true])
+        let applied = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.reapplicationData(extended, current: current))
+        XCTAssertEqual(applied.records["left"]?.allowed, false)
+        XCTAssertEqual(applied.records["new"]?.allowed, false)
+        XCTAssertEqual(applied.records["right"]?.allowed, false)
+        for interrupted in [current, applied] {
+            let restored = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.restorationData(extended, current: interrupted))
+            XCTAssertEqual(restored.records["left"]?.allowed, true)
+            XCTAssertEqual(restored.records["new"]?.allowed, true)
+            XCTAssertEqual(restored.records["right"]?.allowed, false)
+        }
+    }
+
+    func testSuccessiveExtensionsRetainSelfLocationRepairsAndMenuLeaseSupport() throws {
+        let original = try document([("launcher", true, ["old-child"]), ("second", true, []), ("third", true, ["third"])])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: ["launcher": false], includingSelfLocations: ["launcher"])
+        let initial = NativeMenuBarRecovery.Journal(original: original.data, written: written,
+            previousAllowed: ["launcher": true], addedSelfLocations: ["launcher"])
+        let first = try NativeMenuBarRecovery.extending(initial, current: NativeMenuBarPreferences.decode(written),
+            applications: ["second"], visible: ["launcher", "second", "third"], executables: [:])
+        let second = try NativeMenuBarRecovery.extending(first, current: NativeMenuBarPreferences.decode(first.written),
+            applications: ["third"], visible: ["launcher", "second", "third"], executables: [:])
+        XCTAssertEqual(second.previousAllowed, ["launcher": true, "second": true, "third": true])
+        XCTAssertEqual(second.addedSelfLocations, ["launcher", "second"])
+        let current = try NativeMenuBarPreferences.decode(second.written)
+        let menuShown = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.temporaryRevealData(second,
+            current: current, bundle: "third", visible: ["launcher", "second", "third"], executables: [:]))
+        XCTAssertEqual(menuShown.records["launcher"]?.allowed, false)
+        XCTAssertEqual(menuShown.records["second"]?.allowed, false)
+        XCTAssertEqual(menuShown.records["third"]?.allowed, true)
+        let restored = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.restorationData(second, current: current))
+        XCTAssertTrue(restored.records.values.allSatisfy(\.allowed))
+        XCTAssertEqual(restored.records["launcher"]?.locations.compactMap(NativeMenuBarPreferences.bundle), ["old-child", "launcher"])
+    }
+
+    func testExtensionRejectsSharedRightSideOwnerBeforeChangingJournal() throws {
+        let original = try document([("left", true, ["left"]), ("owner", true, ["new", "right"])])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: ["left": false])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: written, previousAllowed: ["left": true])
+        XCTAssertThrowsError(try NativeMenuBarRecovery.extending(journal, current: NativeMenuBarPreferences.decode(written),
+            applications: ["new"], visible: ["left", "new", "right"], executables: [:]))
+    }
+
+    func testSystemOnlyExtensionRetainsPreviousApplicationAndSystemRestoration() throws {
+        let original = try document([("left", true, ["left"])])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: ["left": false])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: written,
+            previousAllowed: ["left": true], systemChanges: [.init(setting: .inputMenu, original: .boolean(true))])
+        let extended = try NativeMenuBarRecovery.extending(journal, current: NativeMenuBarPreferences.decode(written),
+            applications: [], visible: ["left"], executables: [:], systemChanges: [.init(setting: .nowPlaying, original: nil)])
+        XCTAssertEqual(extended.previousAllowed, journal.previousAllowed)
+        XCTAssertEqual(extended.systemChanges?.map(\.setting), [.inputMenu, .nowPlaying])
+        let restored = try NativeMenuBarPreferences.decode(NativeMenuBarRecovery.restorationData(
+            extended, current: NativeMenuBarPreferences.decode(written)))
+        // Re-encoding a binary plist can reorder its object table. Compare all
+        // restored values, including unknown fields, rather than encoded bytes.
+        XCTAssertEqual(NSArray(array: restored.entries), NSArray(array: original.entries))
+    }
+
 }

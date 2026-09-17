@@ -42,6 +42,45 @@ enum NativeMenuBarRecovery {
         try NativeSystemMenuBarPreferences.reapply(journal.systemChanges ?? [])
     }
 
+    /// Commit recovery information before applying additions. A crash between
+    /// this atomic replacement and reapply can restore both old and new items.
+    static func stageExtension(applications: Set<String>, systemItems: Set<String>,
+                               snapshot: NativeMenuBarSnapshot) throws {
+        let previousData = try Data(contentsOf: journalURL)
+        let journal = try PropertyListDecoder().decode(Journal.self, from: previousData)
+        let preferences = try NativeMenuBarPreferences()
+        let current = try preferences.read()
+        let extended = try extending(journal, current: current, applications: applications,
+            visible: Set(snapshot.bars.flatMap(\.items).map(\.bundle)), executables: snapshot.executables,
+            systemChanges: NativeSystemMenuBarPreferences.prepare(systemItems))
+        guard try Data(contentsOf: journalURL) == previousData,
+              try preferences.read().data == current.data else { throw NativeMenuBarPreferences.Failure.concurrentChange }
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: journalURL.path)
+        try PropertyListEncoder().encode(extended).write(to: journalURL, options: .atomic)
+    }
+
+    static func extending(_ journal: Journal, current: NativeMenuBarPreferences.Document,
+                          applications: Set<String>, visible: Set<String>, executables: [String: URL],
+                          systemChanges: [NativeSystemMenuBarPreferences.Change] = []) throws -> Journal {
+        _ = try reapplicationData(journal, current: current)
+        // Reconstruct original flags in memory only. Never publish these
+        // restored values to macOS just to discover/control a newly added app.
+        let original = try NativeMenuBarPreferences.decode(NativeMenuBarPreferences.changing(current,
+            allowed: journal.previousAllowed, removingSelfLocations: journal.addedSelfLocations ?? []))
+        let keys = try NativeMenuBarPreferences.controlKeys(for: applications, visible: visible,
+            executables: executables, in: original)
+        var previous = journal.previousAllowed
+        for key in keys where previous[key] == nil { previous[key] = original.records[key]!.allowed }
+        let added = (journal.addedSelfLocations ?? []).union(NativeMenuBarPreferences.missingSelfLocations(
+            for: applications, keys: keys, executables: executables, in: original))
+        let written = try NativeMenuBarPreferences.changing(original,
+            allowed: previous.mapValues { _ in false }, includingSelfLocations: added)
+        let result = Journal(original: original.data, written: written, previousAllowed: previous,
+            addedSelfLocations: added, systemChanges: (journal.systemChanges ?? []) + systemChanges)
+        _ = try restorationData(result, current: current)
+        return result
+    }
+
     static func temporarilyReveal(_ bundle: String, snapshot: NativeMenuBarSnapshot) throws {
         let journal = try PropertyListDecoder().decode(Journal.self, from: Data(contentsOf: journalURL))
         let preferences = try NativeMenuBarPreferences()
