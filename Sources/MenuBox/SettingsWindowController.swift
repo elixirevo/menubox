@@ -4,12 +4,10 @@ import SwiftUI
 
 final class SettingsWindowController: NSWindowController {
     private let store: SettingsStore
-    private let actions: SettingsActions
     private let navigation = SettingsNavigation()
 
     init(store: SettingsStore, permissions: PermissionStore, actions: SettingsActions) {
         self.store = store
-        self.actions = actions
 
         let view = SettingsView(store: store, permissions: permissions, navigation: navigation, actions: actions)
         let hosting = NSHostingController(rootView: view)
@@ -77,7 +75,7 @@ struct SettingsView: View {
                 .tabItem { Label("Permissions", systemImage: "lock.shield") }
                 .tag(SettingsTab.permissions)
         }
-        .padding(20)
+        .padding(SettingsLayout.windowPadding)
         .frame(minWidth: 560, minHeight: 460)
         .onDisappear {
             stopShortcutCapture()
@@ -85,7 +83,7 @@ struct SettingsView: View {
     }
 
     private var generalTab: some View {
-        Form {
+        SettingsForm {
             Section("General") {
                 Toggle("Launch at login", isOn: Binding(
                     get: { store.settings.launchAtLogin },
@@ -159,7 +157,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
         .alert("Reset Settings?", isPresented: $isShowingResetConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Reset", role: .destructive) {
@@ -198,21 +195,22 @@ struct SettingsView: View {
     ) -> some View {
         let isRecording = shortcutRecordingTarget == target
 
-        return HStack {
-            Text(title)
-            Spacer()
+        return SettingsRow(title) {
             Text(isRecording ? "Press shortcut" : shortcut.displayTitle)
                 .foregroundStyle(isRecording ? Color.accentColor : Color.secondary)
                 .monospaced()
-                .frame(width: 96, alignment: .trailing)
-            Button(isRecording ? "Cancel" : "Change") {
+                .fixedSize()
+                .frame(minWidth: 96, alignment: .trailing)
+            Button {
                 if isRecording {
                     stopShortcutCapture()
                 } else {
                     startShortcutCapture(target)
                 }
+            } label: {
+                Text(isRecording ? "Cancel" : "Change")
+                    .frame(minWidth: 52)
             }
-            .frame(width: 64)
         }
     }
 
@@ -263,16 +261,14 @@ struct SettingsView: View {
     }
 
     private var displayTab: some View {
-        Form {
+        SettingsForm {
             Section("Box Icons") {
                 Toggle("Show Box UI alerts", isOn: Binding(
                     get: { store.settings.boxStatusMessagesEnabled },
                     set: { enabled in store.update { $0.boxStatusMessagesEnabled = enabled } }
                 ))
 
-                HStack(alignment: .center) {
-                    Text("Icons per row")
-                    Spacer()
+                SettingsRow("Icons per row") {
                     Text("\(store.settings.boxMaxColumns)")
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -288,7 +284,7 @@ struct SettingsView: View {
             }
 
             Section("Menu Bar Icons") {
-                HStack {
+                SettingsRow("Hidden icons") {
                     Button("Show hidden icons") {
                         actions.showHiddenIcons()
                     }
@@ -298,20 +294,11 @@ struct SettingsView: View {
                 }
             }
         }
-        .formStyle(.grouped)
     }
 
     private var permissionTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Allow MenuBox to manage your menu bar")
-                        .font(.title3.bold())
-                    Text("Enable the permissions below in System Settings → Privacy & Security.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-
+        SettingsForm {
+            Section {
                 PermissionRow(
                     title: permissions.snapshot.fullDiskAccess == nil
                         ? "Accessibility" : "Device Control and Data Access (Accessibility)",
@@ -327,37 +314,102 @@ struct SettingsView: View {
                         access: diskAccess,
                         action: actions.requestFullDiskAccess
                     )
-                    if diskAccess == .unavailable {
-                        Text("Menu bar settings could not be checked. This does not necessarily mean access was denied. Try checking again.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    }
                 }
+            } header: {
+                Text("Required Permissions")
+            } footer: {
+                Text("Enable MenuBox in System Settings → Privacy & Security.")
+            }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Turn on MenuBox in each list. If it is missing, use the + button to add this app. If macOS asks, quit and reopen MenuBox after changing access.")
-                    Button("Show MenuBox in Finder") {
+            Section {
+                SettingsRow("MenuBox application") {
+                    Button("Show in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
                     }
                 }
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            } header: {
+                Text("Setup")
+            } footer: {
+                Text("Open System Settings, then turn on MenuBox in each list. If it is missing, use the + button to add this app. If macOS asks, quit and reopen MenuBox after changing access.")
+            }
 
-                Divider()
-                HStack {
+            Section {
+                HStack(spacing: SettingsLayout.rowSpacing) {
                     Label(permissions.snapshot.isReady ? "All required permissions are ready." : "Waiting for access…",
                           systemImage: permissions.snapshot.isReady ? "checkmark.circle.fill" : "info.circle")
                         .foregroundStyle(permissions.snapshot.isReady ? Color.green : Color.secondary)
                     Spacer()
                     Button("Check Again") { permissions.refresh() }
                 }
+                .frame(minHeight: SettingsLayout.rowHeight)
+                if permissions.snapshot.fullDiskAccess == .unavailable {
+                    SettingsDescription("Menu bar settings could not be checked. This does not necessarily mean access was denied. Try checking again.")
+                }
+            } header: {
+                Text("Status")
+            } footer: {
                 Text("Permission status updates automatically when you return here.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+private enum SettingsLayout {
+    static let windowPadding: CGFloat = 20
+    static let rowSpacing: CGFloat = 12
+    static let textSpacing: CGFloat = 4
+    static let rowHeight: CGFloat = 24
+}
+
+/// Keep every tab on the same native spacing, section, and control styles.
+private struct SettingsForm<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        Form { content }
+            .formStyle(.grouped)
+            .controlSize(.regular)
+            .buttonStyle(.bordered)
+    }
+}
+
+private struct SettingsRow<Content: View>: View {
+    let title: String
+    var description: String?
+    @ViewBuilder let content: Content
+
+    init(_ title: String, description: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.description = description
+        self.content = content()
+    }
+
+    var body: some View {
+        HStack(spacing: SettingsLayout.rowSpacing) {
+            VStack(alignment: .leading, spacing: SettingsLayout.textSpacing) {
+                Text(title)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let description {
+                    SettingsDescription(description)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            content
+        }
+        .frame(minHeight: SettingsLayout.rowHeight)
+    }
+}
+
+private struct SettingsDescription: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -368,22 +420,24 @@ struct PermissionRow: View {
     let action: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title).font(.headline)
-                Spacer()
-                Label(access.title, systemImage: access == .available ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+        SettingsRow(title, description: description) {
+            VStack(alignment: .trailing, spacing: SettingsLayout.rowSpacing) {
+                Label(access.title, systemImage: statusIcon)
+                    .font(.callout)
                     .foregroundStyle(access == .available ? .green : .orange)
                     .fixedSize()
+                Button("Open System Settings", action: action)
+                    .fixedSize()
             }
-            Text(description)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Button("Open System Settings", action: action)
         }
-        .padding(12)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var statusIcon: String {
+        switch access {
+        case .available: return "checkmark.circle.fill"
+        case .denied: return "exclamationmark.triangle.fill"
+        case .unavailable: return "questionmark.circle.fill"
+        }
     }
 }
 
