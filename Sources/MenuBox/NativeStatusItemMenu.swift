@@ -22,15 +22,28 @@ enum NativeStatusItemMenu {
                      destination: StatusItemEventRouter.Destination? = nil,
                      report: (String) -> Void = { _ in }) async -> OpenedStatusItemMenu? {
         var popupPoint: CGPoint?
+        var visibleBeforeRequest: Set<CGWindowID>?
+        func captureVisibleWindows() {
+            visibleBeforeRequest = StatusItemMenuPresentation.visibleWindows().map {
+                Set($0.filter { $0.ownerPID == target.processIdentifier }.map(\.id))
+            }
+        }
         return await read(rightClick: {
+                       captureVisibleWindows()
                        let pointer = CGEvent(source: nil)?.location
                        let posted = await StatusItemEventRouter.postRightClick(to: target, destination: destination)
                        if posted { popupPoint = pointer }
                        return posted
                    },
                    attached: { MenuBarProxyScanner.immediateProxyMenuItems(for: target) },
-                   request: { MenuBarProxyScanner.requestExplicitStatusItemMenu(for: target) },
-                   opened: { MenuBarProxyScanner.openedStatusItemMenu(for: target, popupPoint: popupPoint) },
+                   request: {
+                       captureVisibleWindows()
+                       return MenuBarProxyScanner.requestExplicitStatusItemMenu(for: target)
+                   },
+                   opened: {
+                       MenuBarProxyScanner.openedStatusItemMenu(for: target, popupPoint: popupPoint,
+                                                               visibleBeforeRequest: visibleBeforeRequest)
+                   },
                    report: {
                        NSLog("[MenuBox] Menu request %@: %@", target.bundleIdentifier, $0)
                        report($0)

@@ -129,18 +129,28 @@ struct MenuBarProxyMenuSelection: @unchecked Sendable {
 }
 
 final class OpenedStatusItemMenu {
+    enum Kind { case menu, customPopup }
     let items: [MenuBarProxyMenuItem]
     let roots: [AXUIElement]
     let presentation: StatusItemMenuPresentation?
+    let kind: Kind
     private var onCancel: (() -> Void)?
     private var didFinish = false
 
     init(items: [MenuBarProxyMenuItem], roots: [AXUIElement],
-         presentation: StatusItemMenuPresentation? = nil, onCancel: (() -> Void)? = nil) {
+         presentation: StatusItemMenuPresentation? = nil, kind: Kind = .menu,
+         onCancel: (() -> Void)? = nil) {
         self.items = items
         self.roots = roots
         self.presentation = presentation
+        self.kind = kind
         self.onCancel = onCancel
+    }
+
+    func keepsNativePresentation(usesNativeHiding: Bool, isBesideBox: Bool) -> Bool {
+        // A custom panel has no commands to copy into an NSMenu. Its original
+        // window owns the interaction, including normal dismissal, on both OS paths.
+        presentation != nil && (kind == .customPopup || (usesNativeHiding && isBesideBox))
     }
 
     func cancel() {
@@ -405,7 +415,12 @@ enum MenuBarProxyScanner {
 
     /// Only menus opened by the status item, never the application's main menu bar.
     static func openedStatusItemMenu(for target: MenuBarProxyTarget,
-                                     popupPoint: CGPoint? = nil) -> OpenedStatusItemMenu? {
+                                     popupPoint: CGPoint? = nil,
+                                     visibleBeforeRequest: Set<CGWindowID>? = nil) -> OpenedStatusItemMenu? {
+        if let visibleBeforeRequest,
+           let popup = openedCustomStatusPopup(for: target, visibleBeforeRequest: visibleBeforeRequest) {
+            return popup
+        }
         var roots = directMenuRoots(for: target)
         let app = AXUIElementCreateApplication(target.processIdentifier)
         AXUIElementSetMessagingTimeout(app, 0.15)
@@ -428,6 +443,35 @@ enum MenuBarProxyScanner {
         guard let items = bestProxyMenuItems(from: popupRoots) else { return nil }
         return OpenedStatusItemMenu(items: items, roots: popupRoots,
             presentation: visibleMenuPresentation(roots: popupRoots, target: target))
+    }
+
+    private static func openedCustomStatusPopup(for target: MenuBarProxyTarget,
+                                                visibleBeforeRequest: Set<CGWindowID>) -> OpenedStatusItemMenu? {
+        guard let windows = StatusItemMenuPresentation.visibleWindows() else { return nil }
+        let candidates = StatusItemMenuPresentation.customPopupCandidates(
+            ownerPID: target.processIdentifier, visibleBeforeRequest: visibleBeforeRequest, windows: windows)
+        guard !candidates.isEmpty else { return nil }
+        let app = AXUIElementCreateApplication(target.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 0.15)
+        let roots = uniqueElements(accessibilityElements(attribute: kAXWindowsAttribute, from: app) +
+            accessibilityElements(attribute: kAXChildrenAttribute, from: app)).filter {
+                guard elementBelongsToTarget($0, target: target) else { return false }
+                let role = stringAttribute(kAXRoleAttribute, from: $0)
+                let subrole = stringAttribute(kAXSubroleAttribute, from: $0)
+                return role == "AXPopover" || (role == "AXWindow" && subrole == "AXSystemDialog")
+            }
+        let dialogs = roots.compactMap { root -> (AXUIElement, CGRect)? in
+            guard let point = cgPointAttribute(kAXPositionAttribute, from: root),
+                  let size = cgSizeAttribute(kAXSizeAttribute, from: root) else { return nil }
+            return (root, CGRect(origin: point, size: size))
+        }
+        guard let presentation = StatusItemMenuPresentation.matchingCustomPopup(
+            windows: candidates, dialogFrames: dialogs.map { $0.1 }) else { return nil }
+        let matchingRoots = dialogs.filter {
+            StatusItemMenuPresentation.matchingCustomPopup(
+                windows: candidates.filter { $0.id == presentation.windowID }, dialogFrames: [$0.1]) != nil
+        }.map { $0.0 }
+        return .init(items: [], roots: matchingRoots, presentation: presentation, kind: .customPopup)
     }
 
     private static func visibleMenuPresentation(roots: [AXUIElement], target: MenuBarProxyTarget) -> StatusItemMenuPresentation? {

@@ -968,9 +968,10 @@ final class MenuBoxController: NSObject {
                 return
             }
             if let opened = await self.requestHiddenStatusItemMenu(for: liveTarget) {
-                if self.usesNativeHiding, let presentation = opened.presentation,
-                   self.boxWindowController.canUseNativeMenu(presentation, anchorPoint: anchorPoint) {
-                    self.nativeHiding.recordMenuInteraction("native presentation: \(liveTarget.bundleIdentifier), window=\(presentation.windowID)")
+                if let presentation = opened.presentation,
+                   opened.keepsNativePresentation(usesNativeHiding: self.usesNativeHiding,
+                       isBesideBox: self.boxWindowController.canUseNativeMenu(presentation, anchorPoint: anchorPoint)) {
+                    self.nativeHiding.recordMenuInteraction("native presentation: \(liveTarget.bundleIdentifier), kind=\(opened.kind), window=\(presentation.windowID)")
                     await NativeStatusItemMenu.keepVisibleUntilClosed(opened, isVisible: { presentation.isVisible })
                     self.nativeHiding.recordMenuInteraction("native presentation ended: \(liveTarget.bundleIdentifier)")
                     if !Task.isCancelled {
@@ -1049,7 +1050,8 @@ final class MenuBoxController: NSObject {
                     // but keeps the live menu through command execution on
                     // selection. Rehiding earlier can invalidate dynamic items.
                     menuOwnsLease = true
-                    return .init(items: opened.items, roots: opened.roots, presentation: opened.presentation) { [weak self] in
+                    return .init(items: opened.items, roots: opened.roots, presentation: opened.presentation,
+                                 kind: opened.kind) { [weak self] in
                         self?.nativeHiding.endTemporaryReveal(lease)
                     }
                 }

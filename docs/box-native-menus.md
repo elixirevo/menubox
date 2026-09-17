@@ -97,6 +97,39 @@ Installed `read-before-input-v1` verification on macOS 27.0 (26A428):
 - Claude still followed `right-click posted` → seven entries → `native presentation` during observed user requests. This confirms the empty-menu generation fallback remains active; native command selection was not retested.
 - The release build, installed app and `dist/MenuBox.app` have matching executable hashes. Evidence and scope notes are in `artifacts/macos27/research/read-before-input/verification.json`.
 
+## Custom status-item panels (2026-09-17)
+
+AlDente's charging controls are an app-owned layer-101 `AXWindow` with the
+`AXSystemDialog` subrole, containing buttons and a slider rather than menu items.
+Previously the observer required readable `AXMenuItem` entries. It timed out even
+after this panel opened, released the selected-icon visibility lease, then showed
+“Could not open this app’s menu” in an empty Box proxy.
+
+Before dispatching input, the request now records the target app's visible window
+IDs. A newly visible popup can complete the request as a `customPopup` when its
+owner, popup layer, bounded dimensions and frame match the app's AX system dialog
+or popover. Existing visible windows, regular main windows, other apps and
+ambiguous matches are excluded. A reused offscreen window is eligible when it
+becomes visible. Posting an event without observing a popup still is not success.
+
+Custom panels remain native even when anchored to the menu bar: there are no
+menu commands to copy into a proxy. Their lifetime holds the visibility lease;
+normal closure releases it once and ends the interaction without retrying or
+showing an unavailable-menu fallback. This also handles a panel dismissed after
+discovery but before the caller starts watching it. Readable menus keep their
+existing native/proxy placement rules.
+
+Tests cover the empty-item successful response, delayed natural dismissal,
+already-dismissed panels, one-time cleanup, window identity/ownership filtering,
+reused window IDs, ambiguous frames and unchanged ordinary-menu behavior.
+
+Installed `aldente-popup-v1` verification on macOS 27.0 (26A428): the original
+build reproduced a MenuBox error popup about 3.68 seconds after AlDente's panel
+appeared. The fixed build recognized the same reused AlDente window (ID 78) as
+`customPopup`, 561 ms after beginning temporary visibility, with no proxy created
+while the panel remained open. The Xcode XCTest runner passed 120 tests with two
+opt-in live tests skipped. Evidence: `artifacts/macos27/aldente-popup-v1/`.
+
 ## Compatibility
 
 `CGEventSetWindowLocation` and the event window-number field are private implementation details. The symbol is resolved at runtime; the forwarding path is disabled if it is unavailable. No process injection or modification of another app is used.

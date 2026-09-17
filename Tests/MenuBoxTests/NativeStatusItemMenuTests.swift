@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 @testable import MenuBox
 
 @MainActor
@@ -59,6 +60,51 @@ final class NativeStatusItemMenuTests: XCTestCase {
             opened: { nil }, wait: { waits += 1 })
         XCTAssertNil(menu)
         XCTAssertEqual(waits, 30)
+    }
+
+    func testCustomPanelWithoutMenuItemsIsACompletedOpenRequest() async {
+        var waits = 0, cleanups = 0
+        let presentation = StatusItemMenuPresentation(windowID: 42, ownerPID: 7,
+            frame: CGRect(x: 100, y: 34, width: 402, height: 91))
+        let panel = OpenedStatusItemMenu(items: [], roots: [], presentation: presentation,
+            kind: .customPopup, onCancel: { cleanups += 1 })
+        let result = await NativeStatusItemMenu.read(rightClick: { true }, attached: { [] },
+            request: { XCTFail("Do not reopen a successful custom panel"); return false },
+            opened: { waits == 1 ? panel : nil }, wait: { waits += 1 })
+        XCTAssertTrue(result === panel, "A custom UI is success even with no AXMenuItem")
+        XCTAssertEqual(waits, 1, "Do not continue polling toward an erroneous timeout")
+        XCTAssertTrue(panel.keepsNativePresentation(usesNativeHiding: true, isBesideBox: false),
+            "A panel anchored to its own icon cannot be replaced with an empty proxy")
+        XCTAssertTrue(panel.keepsNativePresentation(usesNativeHiding: false, isBesideBox: false))
+        XCTAssertEqual(cleanups, 0)
+        // The user can close the panel before the caller starts watching it.
+        await NativeStatusItemMenu.keepVisibleUntilClosed(panel, isVisible: { false }, wait: {
+            XCTFail("An already dismissed panel has completed normally")
+        })
+        XCTAssertEqual(cleanups, 1)
+        panel.cancel()
+        XCTAssertEqual(cleanups, 1)
+    }
+
+    func testCustomPanelRemainsInteractiveUntilItActuallyCloses() async {
+        var waits = 0, cleanups = 0
+        let panel = OpenedStatusItemMenu(items: [], roots: [],
+            presentation: .init(windowID: 42, ownerPID: 7, frame: .zero),
+            kind: .customPopup, onCancel: { cleanups += 1 })
+        await NativeStatusItemMenu.keepVisibleUntilClosed(panel, isVisible: { waits < 60 }, wait: {
+            XCTAssertEqual(cleanups, 0)
+            waits += 1
+        })
+        XCTAssertEqual(waits, 60, "The request timeout must not end a successfully opened custom UI")
+        XCTAssertEqual(cleanups, 1)
+    }
+
+    func testOrdinaryMenusKeepTheirExistingPresentationRules() {
+        let menu = OpenedStatusItemMenu(items: [item("Settings")], roots: [],
+            presentation: .init(windowID: 42, ownerPID: 7, frame: .zero))
+        XCTAssertTrue(menu.keepsNativePresentation(usesNativeHiding: true, isBesideBox: true))
+        XCTAssertFalse(menu.keepsNativePresentation(usesNativeHiding: true, isBesideBox: false))
+        XCTAssertFalse(menu.keepsNativePresentation(usesNativeHiding: false, isBesideBox: true))
     }
 
     func testCancellationDuringRoutingDoesNotSendAFallbackAction() async {
