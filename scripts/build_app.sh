@@ -6,8 +6,8 @@ APP_NAME="${APP_NAME:-MenuBox}"
 PRODUCT_NAME="${PRODUCT_NAME:-$APP_NAME}"
 EXECUTABLE_NAME="${EXECUTABLE_NAME:-$APP_NAME}"
 BUNDLE_ID="${BUNDLE_ID:-com.elixirevo.MenuBox}"
-APP_VERSION="${APP_VERSION:-1.1.0}"
-APP_BUILD="${APP_BUILD:-110}"
+APP_VERSION="${APP_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Resources/Info.plist")}"
+APP_BUILD="${APP_BUILD:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$ROOT_DIR/Resources/Info.plist")}"
 MIN_MACOS="${MIN_MACOS:-13.0}"
 LSUIELEMENT="${LSUIELEMENT:-true}"
 SIGN_IDENTITY="${SIGN_IDENTITY:--}"
@@ -27,6 +27,7 @@ fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
+cd "$ROOT_DIR"
 
 "$ROOT_DIR/scripts/generate_app_icon.sh"
 swift build -c release --arch "$ARCH"

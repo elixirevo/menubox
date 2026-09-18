@@ -17,9 +17,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.0</string>
+    <string>1.2.0</string>
     <key>CFBundleVersion</key>
-    <string>110</string>
+    <string>120</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>
@@ -31,8 +31,12 @@
     <key>SUEnableAutomaticChecks</key>
     <true/>
     <key>SUFeedURL</key>
-    <string>https://github.com/elixirevo/menubox/releases/latest/download/appcast.xml</string>
+    <string>https://github.com/elixirevo/menubox/releases/latest/download/menubox-appcast.xml</string>
     <key>SUPublicEDKey</key>
-    <string>WqbePVnRnb1iTrG97L2uwcc4FClbTWSRiEvmWpLtR2k=</string>
+    <string>DkW9R8vB7oy76jnfXxW2elbmGY88v44ykWzTWcT20oo=</string>
+    <key>SUVerifyUpdateBeforeExtraction</key>
+    <true/>
+    <key>SURequireSignedFeed</key>
+    <true/>
 </dict>
 </plist>

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="${APP_NAME:-MenuBox}"
 PRODUCT_NAME="${PRODUCT_NAME:-$APP_NAME}"
-APP_VERSION="${APP_VERSION:-1.1.0}"
+APP_VERSION="${APP_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Resources/Info.plist")}"
 ARCH="${1:-${ARCH:-}}"
 VOL_NAME="${VOL_NAME:-MenuBox}"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
@@ -32,6 +32,10 @@ cleanup() {
 trap cleanup EXIT
 
 ARCH="$ARCH" bash "$ROOT_DIR/scripts/build_app.sh" "$ARCH"
+
+if [[ "${NOTARIZE:-0}" == "1" ]]; then
+  bash "$ROOT_DIR/scripts/notarize.sh" "$APP_PATH" "$ARCH"
+fi
 
 mkdir -p "$STAGE_DIR" "$BG_DIR"
 cp -R "$APP_PATH" "$STAGE_DIR/$PRODUCT_NAME.app"
@@ -102,4 +106,7 @@ if [[ "${SIGN_DMG:-0}" == "1" ]]; then
 fi
 
 hdiutil verify "$DMG_PATH" >/dev/null
+if [[ "${NOTARIZE:-0}" == "1" ]]; then
+  bash "$ROOT_DIR/scripts/notarize.sh" "$DMG_PATH" "$ARCH"
+fi
 echo "DMG created: $DMG_PATH"

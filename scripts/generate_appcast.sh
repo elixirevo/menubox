@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="${APP_NAME:-MenuBox}"
-APP_VERSION="${APP_VERSION:-1.1.0}"
+APP_VERSION="${APP_VERSION:-$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$ROOT_DIR/Resources/Info.plist")}"
 GITHUB_REPOSITORY="${GITHUB_REPOSITORY:-elixirevo/menubox}"
 RELEASE_TAG="${RELEASE_TAG:-}"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
@@ -12,6 +12,7 @@ SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
 SPARKLE_MAXIMUM_VERSIONS="${SPARKLE_MAXIMUM_VERSIONS:-1}"
 SPARKLE_MAXIMUM_DELTAS="${SPARKLE_MAXIMUM_DELTAS:-0}"
 ARCHS="${ARCHS:-arm64 x86_64}"
+SPARKLE_KEY_ACCOUNT="${SPARKLE_KEY_ACCOUNT:-menubox}"
 
 if [[ -z "$APP_VERSION" ]]; then
   echo "Set APP_VERSION before generating an appcast."
@@ -75,10 +76,18 @@ for arch in $ARCHS; do
 done
 
 "$SPARKLE_GENERATE_APPCAST" \
+  --account "$SPARKLE_KEY_ACCOUNT" \
   --download-url-prefix "$SPARKLE_DOWNLOAD_URL_PREFIX" \
+  --embed-release-notes \
   --link "$SPARKLE_PRODUCT_LINK" \
   --maximum-versions "$SPARKLE_MAXIMUM_VERSIONS" \
   --maximum-deltas "$SPARKLE_MAXIMUM_DELTAS" \
+  -o "$APPCAST_ARCHIVE_DIR/menubox-appcast.xml" \
   "$APPCAST_ARCHIVE_DIR"
 
-echo "Appcast created: $APPCAST_ARCHIVE_DIR/appcast.xml"
+python3 "$ROOT_DIR/scripts/generate_legacy_appcast.py" \
+  --version "$APP_VERSION" --build "${APP_BUILD_ARM64:-121}" \
+  --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
+  --output "$APPCAST_ARCHIVE_DIR/appcast.xml"
+
+echo "Appcasts created: $APPCAST_ARCHIVE_DIR/{menubox-appcast,appcast}.xml"

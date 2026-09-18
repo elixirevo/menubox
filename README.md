@@ -40,7 +40,7 @@ MenuBox is built with Swift Package Manager and a small app-bundle build script.
 
 ### Install via Homebrew
 
-Once a release is published and the cask is added to `elixirevo/tap`, install with:
+Install the signed and notarized release from `elixirevo/tap`:
 
 ```bash
 brew tap elixirevo/tap
@@ -103,26 +103,34 @@ Build separate app bundles and DMGs for Apple Silicon and Intel:
 This creates:
 
 ```text
-dist/MenuBox-1.1.0-arm64.dmg
-dist/MenuBox-1.1.0-x86_64.dmg
+dist/MenuBox-1.2.0-arm64.dmg
+dist/MenuBox-1.2.0-x86_64.dmg
 ```
 
 You can override release metadata when needed:
 
 ```bash
-APP_VERSION=1.1.0 APP_BUILD=111 ./scripts/build_dmg.sh arm64
+APP_VERSION=1.2.0 APP_BUILD=121 ./scripts/build_dmg.sh arm64
 ```
 
 Calculate the SHA-256 checksums with `shasum -a 256 dist/MenuBox-*.dmg`.
 
-### Prepare a Homebrew Release
+### Upgrading from StatusBox
 
-Before publishing the Homebrew cask:
+MenuBox 1.2 requires a one-time installation via Homebrew or the [GitHub release](https://github.com/elixirevo/menubox/releases/latest). Quit StatusBox before upgrading. For Homebrew installations:
 
-1. Upload both `dist/MenuBox-1.1.0-arm64.dmg` and `dist/MenuBox-1.1.0-x86_64.dmg` to the GitHub release `v1.1.0` in `elixirevo/menubox`.
-2. Copy `homebrew/Casks/menubox.rb` into the `elixirevo/homebrew-tap` repository.
-3. Replace the two `REPLACE_WITH_*_RELEASE_SHA256` placeholders with the corresponding DMG checksums.
-4. Update the cask `version` when releasing a new app version.
+```bash
+brew update
+brew upgrade --cask elixirevo/tap/menubox
+```
+
+The tap maps the former `status-box` cask to `menubox`. If needed, run `brew migrate --cask status-box` first. Manual installations should move MenuBox.app into Applications, launch it to import settings, and then remove the old StatusBox app and login item.
+
+The former Sparkle private key is unavailable, and StatusBox 1.1 was ad-hoc signed, so its update checker now links to installation instructions instead of attempting an unverifiable update. StatusBox 1.0 has no built-in updater. MenuBox 1.2 and later use a new signing key and signed feed for future in-app updates.
+
+### Prepare a Release
+
+See [the release workflow](docs/releasing.md) for Developer ID signing, Apple notarization, Sparkle key backup, GitHub publication, and Homebrew cask updates. Release artifacts must pass signature, notarization, appcast, and checksum verification before publication.
 
 ## 🔒 Permissions
 
