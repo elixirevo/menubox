@@ -17,8 +17,9 @@ find "$CHECK_DIR/Casks" -type f -name '*.rb' -delete
 cp "$TAP_DIR/Casks/menubox.rb" "$CHECK_DIR/Casks/menubox.rb"
 cp "$TAP_DIR/cask_renames.json" "$CHECK_DIR/cask_renames.json"
 cleanup() {
-  brew untap "$CHECK_TAP" >/dev/null
+  # Resolve the local origin while the tap still exists, then remove its trust.
   brew untrust --cask "$CHECK_TAP/menubox" >/dev/null
+  brew untap "$CHECK_TAP" >/dev/null
 }
 trap cleanup EXIT
 brew trust --cask "$CHECK_TAP/menubox"
