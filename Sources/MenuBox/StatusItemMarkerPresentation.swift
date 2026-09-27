@@ -9,21 +9,23 @@ final class StatusItemMarkerPresentation {
     static let collapsedHostWidth: CGFloat = 16
 
     private let item: NSStatusItem
-    private let image: NSImage?
     private(set) var isHidden = false
     private(set) var expandedFrame: NSRect?
 
     init(item: NSStatusItem) {
         self.item = item
-        image = item.button?.image
     }
 
     func setHidden(_ hidden: Bool) {
         guard hidden != isHidden else { return }
         if hidden { expandedFrame = item.button?.window?.frame }
         isHidden = hidden
-        item.button?.image = hidden ? nil : image
-        item.button?.isEnabled = !hidden
+        // Submit only a geometry change to the hosted menu bar. Clearing the
+        // image redraws the client surface before MenuBarAgent applies the other
+        // icons' visibility, while waiting for AX removal makes this item late.
+        // At zero content length AppKit clips the intact image to a zero-width
+        // button. Keeping its image and enabled state also avoids a separate
+        // redraw when revealing it. The host retains its usual padding.
         item.length = hidden ? 0 : NSStatusItem.squareLength
     }
 }

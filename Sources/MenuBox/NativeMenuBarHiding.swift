@@ -88,6 +88,9 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                 let snapshot = try self.backend.capture(false)
                 let plan = try snapshot.plan()
                 try self.backend.apply(snapshot, plan)
+                // Queue the marker's host geometry in the same main-actor turn
+                // as the visibility write. Presentation must not clear its image
+                // or await an AX snapshot between these two layout requests.
                 self.setMarkerHidden?(true)
                 // Record the applied transaction before awaiting verification so
                 // sleep during verification can retain it and its original journal.

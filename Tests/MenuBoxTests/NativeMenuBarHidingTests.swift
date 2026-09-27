@@ -100,6 +100,25 @@ final class NativeMenuBarHidingTests: XCTestCase {
         XCTAssertTrue(bar.markerHidden)
     }
 
+    func testMarkerLayoutIsSubmittedAfterWriteWithoutWaitingForHostVerification() async throws {
+        let bar = MenuBar(), hiding = bar.controller(verification: 80_000_000)
+        defer { hiding.stop() }
+        bar.onApply = {
+            // Model the host's asynchronous update: writing preferences has
+            // succeeded but the old visible tree is still being published.
+            bar.applicationsHidden = false
+        }
+        hiding.hide()
+        try await eventually { bar.writes == 1 }
+        XCTAssertTrue(bar.markerHidden, "Queue the geometry in the same turn as the visibility request")
+        XCTAssertEqual(bar.checks, 1, "AX verification must not gate the marker layout request")
+        XCTAssertTrue(hiding.isTransitioning)
+        bar.applicationsHidden = true
+        try await eventually { !hiding.isTransitioning }
+        XCTAssertEqual(bar.writes, 1)
+        XCTAssertTrue(bar.errors.isEmpty)
+    }
+
     func testRapidToggleCancelsPendingHideBeforeAnyWrite() async throws {
         let bar = MenuBar(), hiding = bar.controller()
         defer { hiding.stop() }

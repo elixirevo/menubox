@@ -293,6 +293,7 @@ final class MenuBoxController: NSObject {
     }
 
     @objc private func tapeItemClicked(_ sender: NSStatusBarButton) {
+        guard markerPresentation?.isHidden != true else { return }
         guard let event = NSApp.currentEvent else {
             return
         }
