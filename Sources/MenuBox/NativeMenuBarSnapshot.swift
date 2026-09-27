@@ -71,7 +71,24 @@ struct NativeMenuBarSnapshot {
                 byFrame[bar.id] = bar
             }
         }
-        var bars = Array(byFrame.values).sorted { $0.frame.minX < $1.frame.minX }
+        let bars = try resolveControls(Array(byFrame.values), markerHidden: markerHidden)
+        return NativeMenuBarSnapshot(bars: bars, executables: executables)
+    }
+
+    static func resolveControls(_ captured: [Bar], markerHidden: Bool) throws -> [Bar] {
+        var bars = captured.sorted { $0.frame.minX < $1.frame.minX }
+        if markerHidden {
+            for index in bars.indices {
+                // Inactive display replicas may omit the AX identifier. Only
+                // MenuBox's collapsed host is excluded; never a full-size marker
+                // or another app's narrow icon. The Box must still be resolved.
+                bars[index].items.removeAll {
+                    $0.bundle == NativeMenuBarPreferences.ownBundle &&
+                        ($0.identifier.isEmpty || $0.identifier == "MenuBox.marker") &&
+                        $0.frame.width >= 0 && $0.frame.width <= StatusItemMarkerPresentation.collapsedHostWidth
+                }
+            }
+        }
         guard !bars.isEmpty,
               let known = bars.first(where: { bar in
                   (markerHidden ? ["MenuBox.main"] : ["MenuBox.main", "MenuBox.marker"]).allSatisfy { id in
@@ -93,7 +110,10 @@ struct NativeMenuBarSnapshot {
             }
             guard Set(bars[index].items.map(\.id)).count == bars[index].items.count else { throw Failure.incomplete }
         }
-        return NativeMenuBarSnapshot(bars: bars, executables: executables)
+        if !markerHidden, bars.contains(where: { bar in
+            bar.items.contains { $0.id == "MenuBox.marker" && $0.frame.width <= StatusItemMarkerPresentation.collapsedHostWidth }
+        }) { throw Failure.incomplete }
+        return bars
     }
 
     func plan() throws -> MenuBarSectionPlanner.Plan {

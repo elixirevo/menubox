@@ -26,7 +26,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         }
     }
     struct Timing {
-        var initial: UInt64 = 250_000_000
+        var initial: UInt64 = 0
         var environment: UInt64 = 750_000_000
         var verification: UInt64 = 250_000_000
         var retries: [UInt64] = [250_000_000, 500_000_000, 1_000_000_000, 2_000_000_000, 3_000_000_000]
@@ -47,6 +47,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     private var appliedPlan: MenuBarSectionPlanner.Plan?
     private var checkRequested = false
     private var temporaryReveal: (token: UUID, bundle: String)?
+    private var revealSettlesAt: TimeInterval = 0
     private(set) var hiddenApplications = Set<String>()
     private(set) var hiddenSystemItems = Set<String>()
     private let backend: Backend
@@ -75,9 +76,13 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             do {
                 if let prepare = self.backend.prepare { try await prepare() }
                 else { try await self.ensureHelper() }
-                // The marker and display hosts register asynchronously after
-                // reveal/wake. Retry transient layouts without losing user intent.
-                try await Task.sleep(nanoseconds: delay)
+                // A ready layout needs no debounce. Only a just-restored
+                // transaction needs time to republish its apps; otherwise a
+                // rapid show/hide can mistake the still-hidden tree for an empty
+                // section. Transient launch/wake layouts use the retry path.
+                let settling = max(0, self.revealSettlesAt - ProcessInfo.processInfo.systemUptime)
+                let wait = max(delay, UInt64(settling * 1_000_000_000))
+                if wait > 0 { try await Task.sleep(nanoseconds: wait) }
                 try Task.checkCancellation()
                 guard self.generation == current else { return }
                 let snapshot = try self.backend.capture(false)
@@ -342,6 +347,9 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         setMarkerHidden?(false)
         do {
             try backend.restore()
+            if isHidden {
+                revealSettlesAt = ProcessInfo.processInfo.systemUptime + Double(timing.verification) / 1_000_000_000
+            }
             isHidden = false
             baseline = nil
             boundaryReference = nil

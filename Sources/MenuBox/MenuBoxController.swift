@@ -79,9 +79,9 @@ final class MenuBoxController: NSObject {
 
     private var statusItem: NSStatusItem?
     private var tapeItem: NSStatusItem?
-    private var savedMarkerFrame: NSRect?
+    private var markerPresentation: StatusItemMarkerPresentation?
     private var markerFrame: NSRect? {
-        tapeItem?.isVisible == true ? tapeItem?.button?.window?.frame : savedMarkerFrame
+        markerPresentation?.isHidden == true ? markerPresentation?.expandedFrame : tapeItem?.button?.window?.frame
     }
     private var autoHideTimer: Timer?
     private var captureTask: Task<Void, Never>?
@@ -94,10 +94,7 @@ final class MenuBoxController: NSObject {
     private lazy var nativeHiding: NativeMenuBarHiding = {
         let hiding = NativeMenuBarHiding()
         hiding.setMarkerHidden = { [weak self] hidden in
-            guard let self else { return }
-            guard self.tapeItem?.isVisible != !hidden else { return }
-            if hidden { self.savedMarkerFrame = self.tapeItem?.button?.window?.frame }
-            self.tapeItem?.isVisible = !hidden
+            self?.markerPresentation?.setHidden(hidden)
         }
         hiding.onChange = { [weak self] hidden, error in
             guard let self else { return }
@@ -277,6 +274,7 @@ final class MenuBoxController: NSObject {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         tapeItem = item
+        markerPresentation = StatusItemMarkerPresentation(item: item)
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {

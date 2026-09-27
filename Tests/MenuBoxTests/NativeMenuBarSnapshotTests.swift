@@ -20,6 +20,36 @@ final class NativeMenuBarSnapshotTests: XCTestCase {
         XCTAssertEqual(try snapshot.plan().applicationKeys, ["one", "two"])
     }
 
+    func testCollapsedMarkerRemainsRegisteredAcrossDisplayReplicas() throws {
+        var reference = bar(0), replica = bar(-200)
+        reference.items[2] = .init(id: "marker", bundle: own,
+            frame: CGRect(x: 70, y: 0, width: 16, height: 24), identifier: "MenuBox.marker")
+        replica.items[2] = .init(id: "replica-marker", bundle: own,
+            frame: CGRect(x: -130, y: 0, width: 16, height: 24), identifier: "")
+        replica.items[3] = .init(id: "replica-box", bundle: own,
+            frame: replica.items[3].frame, identifier: "")
+        let resolved = try NativeMenuBarSnapshot.resolveControls([reference, replica], markerHidden: true)
+        for bar in resolved {
+            XCTAssertEqual(bar.items.filter { $0.bundle == own }.map(\.id), ["MenuBox.main"])
+            XCTAssertTrue(bar.items.contains { $0.id == "focus" })
+        }
+        XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([reference, replica], markerHidden: false),
+            "Do not plan a new section before the marker has expanded")
+    }
+
+    func testCollapsedMarkerFilteringNeverDiscardsOtherIconsOrAVisibleMarker() throws {
+        var captured = bar(0)
+        captured.items[0] = .init(id: "narrow-app", bundle: "one",
+            frame: CGRect(x: 10, y: 0, width: 8, height: 24), identifier: "")
+        XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([captured], markerHidden: true))
+        captured.items[2] = .init(id: "marker", bundle: own,
+            frame: CGRect(x: 70, y: 0, width: 16, height: 24), identifier: "MenuBox.marker")
+        let resolved = try NativeMenuBarSnapshot.resolveControls([captured], markerHidden: true)
+        XCTAssertTrue(resolved[0].items.contains { $0.id == "narrow-app" })
+        captured.items.removeAll { $0.id == "MenuBox.main" }
+        XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([captured], markerHidden: true))
+    }
+
     func testLaptopOnlyOverflowNeedsNoFullyExpandedReferenceDisplay() throws {
         let snapshot = NativeMenuBarSnapshot(bars: [bar(0, overflow: true)], executables: [:])
         XCTAssertEqual(try snapshot.plan().applicationKeys, ["one", "two"])
