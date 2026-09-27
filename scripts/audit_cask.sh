@@ -19,6 +19,12 @@ cp "$TAP_DIR/cask_renames.json" "$CHECK_DIR/cask_renames.json"
 cleanup() {
   # Resolve the local origin while the tap still exists, then remove its trust.
   brew untrust --cask "$CHECK_TAP/menubox" >/dev/null
+  # Current Homebrew loads matching installed cask tokens during untap. Remove
+  # only our disposable copy first so cleanup neither loads untrusted code nor
+  # mistakes the user's installed MenuBox for an installation from this tap.
+  if [[ -f "$CHECK_DIR/Casks/menubox.rb" ]]; then
+    rm "$CHECK_DIR/Casks/menubox.rb"
+  fi
   brew untap "$CHECK_TAP" >/dev/null
 }
 trap cleanup EXIT
