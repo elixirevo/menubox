@@ -20,6 +20,53 @@ final class NativeMenuBarSnapshotTests: XCTestCase {
         XCTAssertEqual(try snapshot.plan().applicationKeys, ["one", "two"])
     }
 
+    func testDifferentRightSideItemsAndOffsetsDoNotBreakControlResolutionOrPlan() throws {
+        let reference = bar(-200)
+        var replica = bar(0)
+        // Real three-display failure: the inactive replica omits identifiers,
+        // and extra right-side controls push MenuBox farther from the edge.
+        replica.items[2] = .init(id: "own:0", bundle: own,
+            frame: CGRect(x: 60, y: 0, width: 20, height: 24), identifier: "")
+        replica.items[3] = .init(id: "own:1", bundle: own,
+            frame: CGRect(x: 90, y: 0, width: 20, height: 24), identifier: "")
+        replica.items.append(item("right-only", "right-only", 170))
+        let bars = try NativeMenuBarSnapshot.resolveControls([reference, replica], markerHidden: false)
+        let snapshot = NativeMenuBarSnapshot(bars: bars, executables: [:])
+        let plan = try snapshot.plan()
+        XCTAssertEqual(plan.applicationKeys, ["one", "two"])
+        XCTAssertTrue(plan.protectedItemsByDisplay[replica.id]!.contains("right-only"))
+        let hidden = bars.map { bar in
+            NativeMenuBarSnapshot.Bar(frame: bar.frame, items: bar.items.filter {
+                !plan.applicationKeys.contains($0.bundle) && $0.id != "MenuBox.marker"
+            })
+        }
+        XCTAssertNoThrow(try NativeMenuBarSnapshot(bars: hidden, executables: [:])
+            .verifyHidden(plan.applicationKeys, comparedTo: snapshot, markerHidden: true))
+    }
+
+    func testControlResolutionRejectsMissingOverlappingOrContradictoryReplicas() {
+        let reference = bar(-200)
+        var missing = bar(0)
+        missing.items.removeAll { $0.id == "MenuBox.main" }
+        var overlap = bar(0)
+        overlap.items[3] = item("MenuBox.main", own, 75)
+        var reversed = bar(0)
+        reversed.items[2] = item("MenuBox.main", own, 70)
+        reversed.items[3] = item("MenuBox.marker", own, 100)
+        for invalid in [missing, overlap, reversed] {
+            XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([reference, invalid], markerHidden: false))
+        }
+    }
+
+    func testHiddenReplicaResolvesBoxWithoutMatchingTrailingOffset() throws {
+        var reference = hiddenBar(bar(-200)), replica = hiddenBar(bar(0))
+        reference.items[0] = item("MenuBox.main", own, -100)
+        replica.items[0] = .init(id: "own", bundle: own,
+            frame: CGRect(x: 70, y: 0, width: 20, height: 24), identifier: "")
+        XCTAssertEqual(try NativeMenuBarSnapshot.resolveControls([reference, replica], markerHidden: true)
+            .flatMap(\.items).filter { $0.bundle == own }.map(\.id), ["MenuBox.main", "MenuBox.main"])
+    }
+
     func testCollapsedMarkerRemainsRegisteredAcrossDisplayReplicas() throws {
         var reference = bar(0), replica = bar(-200)
         reference.items[2] = .init(id: "marker", bundle: own,
@@ -169,6 +216,29 @@ final class NativeMenuBarSnapshotTests: XCTestCase {
         hidden.items.removeAll { $0.bundle.hasPrefix("new-") }
         XCTAssertEqual(try NativeMenuBarSnapshot(bars: [hidden], executables: [:]).hiddenState(
             update.plan.applicationKeys, comparedTo: update.baseline, systemItems: []), .hidden)
+    }
+
+    func testHiddenAdditionsAllowDifferentInventoriesOnEachDisplay() throws {
+        var external = bar(-200)
+        external.items.append(item("external-only", "external-only", -30))
+        let before = NativeMenuBarSnapshot(bars: [external, bar(0)], executables: [:])
+        var laptop = hiddenBar(bar(0))
+        laptop.items.append(item("new-left", "new-left", 30))
+        let update = try NativeMenuBarSnapshot(bars: [hiddenBar(external), laptop], executables: [:])
+            .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan())
+        XCTAssertEqual(update.plan.applicationKeys, ["one", "two", "new-left"])
+        XCTAssertTrue(update.plan.protectedItemsByDisplay[external.id]!.contains("external-only"))
+    }
+
+    func testNewLeftSystemReplicaCannotHideExistingProtectedReplica() throws {
+        let id = NativeSystemMenuBarPreferences.Setting.nowPlaying.itemID
+        var external = bar(-200)
+        external.items.append(item(id, "com.apple.MenuBarAgent", -30))
+        let before = NativeMenuBarSnapshot(bars: [external, bar(0)], executables: [:])
+        var laptop = hiddenBar(bar(0))
+        laptop.items.append(item(id, "com.apple.MenuBarAgent", 30))
+        XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [hiddenBar(external), laptop], executables: [:])
+            .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan()))
     }
 
     func testConsecutiveAdditionsUseOriginalBoundaryAndKeepAllOwnershipReferences() throws {

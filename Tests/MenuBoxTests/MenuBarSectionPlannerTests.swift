@@ -39,6 +39,13 @@ final class MenuBarSectionPlannerTests: XCTestCase {
         ])) { XCTAssertEqual($0 as? Planner.Failure, .applicationSpansBoundary("shared-app")) }
     }
 
+    func testSystemControlOnDifferentSidesAcrossDisplaysCannotBeHidden() {
+        XCTAssertThrowsError(try Planner.plan(displays: [
+            display([item("wifi", .system("wifi"), -850)], id: "one"),
+            display([item("wifi", .system("wifi"), -500)], id: "two")
+        ])) { XCTAssertEqual($0 as? Planner.Failure, .applicationSpansBoundary("wifi")) }
+    }
+
     func testOverflowPlaceholdersWhollyLeftOfMarkerRemainEligible() throws {
         let plan = try Planner.plan(displays: [display([
             item("one", .application("one"), -850),

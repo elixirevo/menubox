@@ -45,6 +45,7 @@ enum MenuBarSectionPlanner {
         var rightApplications = Set<String>()
         var protectedItems: [String: Set<String>] = [:]
         var systemItemIDs = Set<String>()
+        var rightSystemItemIDs = Set<String>()
 
         for display in displays {
             guard display.isResolved, valid(display.frame),
@@ -97,7 +98,10 @@ enum MenuBarSectionPlanner {
                     }
                 case .system(let key):
                     if item.frame.maxX <= boundary { systemItemIDs.insert(key) }
-                    else { preserved.insert(item.id) }
+                    else {
+                        rightSystemItemIDs.insert(key)
+                        preserved.insert(item.id)
+                    }
                 }
             }
             protectedItems[display.id] = preserved
@@ -106,6 +110,9 @@ enum MenuBarSectionPlanner {
         // Also catches different sides on different displays. The visibility
         // setting controls the whole app, so neither case permits exact hiding.
         if let conflict = leftApplications.intersection(rightApplications).sorted().first {
+            throw Failure.applicationSpansBoundary(conflict)
+        }
+        if let conflict = systemItemIDs.intersection(rightSystemItemIDs).sorted().first {
             throw Failure.applicationSpansBoundary(conflict)
         }
         return Plan(applicationKeys: leftApplications, protectedItemsByDisplay: protectedItems,

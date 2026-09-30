@@ -80,6 +80,8 @@ final class MenuBoxController: NSObject {
     private var statusItem: NSStatusItem?
     private var tapeItem: NSStatusItem?
     private var markerPresentation: StatusItemMarkerPresentation?
+    private var replicaRecovery = StatusItemReplicaRecovery()
+    private var boxDisplayID: String?
     private var markerFrame: NSRect? {
         markerPresentation?.isHidden == true ? markerPresentation?.expandedFrame : tapeItem?.button?.window?.frame
     }
@@ -649,7 +651,8 @@ final class MenuBoxController: NSObject {
             return
         }
 
-        guard let anchorFrame = statusItem?.button?.window?.frame,
+        boxDisplayID = MenuBarGeometry.screen(containing: NSEvent.mouseLocation)?.menuBoxDisplayId
+        guard let anchorFrame = boxAnchorFrame,
               let tapeFrame = markerFrame,
               let screen = MenuBarGeometry.screen(containing: NSPoint(x: anchorFrame.midX, y: anchorFrame.midY)) else {
             return
@@ -685,6 +688,7 @@ final class MenuBoxController: NSObject {
         proxyTargetPeriodicRefreshTimer?.invalidate()
         let timer = Timer(timeInterval: ProxyTargetCacheTiming.periodicRefreshInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
+            self.repairMissingStatusItemReplicas()
             if self.usesNativeHiding { self.nativeHiding.environmentChanged(reason: "status item inventory") }
             self.refreshProxyTargetCache(
                 updateVisibleBox: self.boxWindowController.isShowing,
@@ -694,6 +698,39 @@ final class MenuBoxController: NSObject {
         timer.tolerance = 1
         proxyTargetPeriodicRefreshTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func repairMissingStatusItemReplicas() {
+        guard !isStopping, usesNativeHiding, !boxWindowController.isMenuInteractionActive,
+              let raw = try? NativeMenuBarSnapshot.captureUnresolved(),
+              replicaRecovery.shouldRepair(bars: raw.bars,
+                  markerHidden: markerPresentation?.isHidden == true,
+                  now: ProcessInfo.processInfo.systemUptime) else { return }
+        let markerHidden = markerPresentation?.isHidden == true
+        nativeHiding.recordMenuInteraction("repair missing MenuBox display replicas")
+        // Re-register only our own items, retaining their autosave names and
+        // current collapsed state. Do not restart the system menu bar agent or
+        // reveal any of the user's hidden applications.
+        if let statusItem { NSStatusBar.system.removeStatusItem(statusItem) }
+        if let tapeItem { NSStatusBar.system.removeStatusItem(tapeItem) }
+        configureMainStatusItem()
+        configureTapeStatusItem()
+        markerPresentation?.setHidden(markerHidden)
+        nativeHiding.environmentChanged(reason: "status item replicas repaired")
+    }
+
+    private var boxAnchorFrame: NSRect? {
+        guard usesNativeHiding, let boxDisplayID,
+              let screen = MenuBarGeometry.screen(displayId: boxDisplayID),
+              let raw = try? NativeMenuBarSnapshot.captureUnresolved(),
+              let bars = try? NativeMenuBarSnapshot.resolveControls(raw.bars,
+                  markerHidden: markerPresentation?.isHidden == true),
+              let frame = bars.flatMap(\.items).first(where: { item in
+                  item.id == "MenuBox.main" && screen.frame.contains(
+                      MenuBarGeometry.appKitPoint(fromQuartzPoint: CGPoint(x: item.frame.midX, y: item.frame.midY)))
+              })?.frame else { return statusItem?.button?.window?.frame }
+        let origin = MenuBarGeometry.appKitPoint(fromQuartzPoint: CGPoint(x: frame.minX, y: frame.maxY))
+        return NSRect(origin: origin, size: frame.size)
     }
 
     private func scheduleProxyTargetCacheWarmupAttempt() {
@@ -817,7 +854,7 @@ final class MenuBoxController: NSObject {
         guard !isStopping, boxWindowController.isShowing,
               pendingMenuPlacementRestore == nil,
               !boxWindowController.isMenuInteractionActive,
-              let anchorFrame = statusItem?.button?.window?.frame,
+              let anchorFrame = boxAnchorFrame,
               let tapeFrame = markerFrame,
               let screen = MenuBarGeometry.screen(containing: NSPoint(x: anchorFrame.midX, y: anchorFrame.midY)) else {
             return

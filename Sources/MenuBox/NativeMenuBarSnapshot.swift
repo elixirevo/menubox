@@ -33,6 +33,13 @@ struct NativeMenuBarSnapshot {
     }
 
     static func capture(markerHidden: Bool = false) throws -> NativeMenuBarSnapshot {
+        let raw = try captureUnresolved()
+        return NativeMenuBarSnapshot(bars: try resolveControls(raw.bars, markerHidden: markerHidden),
+                                     executables: raw.executables)
+    }
+
+    /// Keep raw host membership available for repairing missing local replicas.
+    static func captureUnresolved() throws -> NativeMenuBarSnapshot {
         guard AXIsProcessTrusted() else { throw Failure.permission }
         guard let agent = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.MenuBarAgent").first else {
             throw Failure.incomplete
@@ -71,8 +78,7 @@ struct NativeMenuBarSnapshot {
                 byFrame[bar.id] = bar
             }
         }
-        let bars = try resolveControls(Array(byFrame.values), markerHidden: markerHidden)
-        return NativeMenuBarSnapshot(bars: bars, executables: executables)
+        return NativeMenuBarSnapshot(bars: Array(byFrame.values), executables: executables)
     }
 
     static func resolveControls(_ captured: [Bar], markerHidden: Bool) throws -> [Bar] {
@@ -99,14 +105,20 @@ struct NativeMenuBarSnapshot {
         for index in bars.indices {
             let own = bars[index].items.indices.filter { bars[index].items[$0].bundle == NativeMenuBarPreferences.ownBundle }
             guard own.count == (markerHidden ? 1 : 2) else { throw Failure.incomplete }
-            for itemIndex in own {
+            // Replica AX buttons can omit identifiers. Their order within this
+            // app is shared, but their distance from the display edge is not:
+            // other apps and system controls can differ between displays.
+            let reference = known.items.filter { $0.bundle == NativeMenuBarPreferences.ownBundle }
+                .sorted { $0.frame.minX < $1.frame.minX }
+            let ordered = own.sorted { bars[index].items[$0].frame.minX < bars[index].items[$1].frame.minX }
+            for (ordinal, itemIndex) in ordered.enumerated() {
                 let item = bars[index].items[itemIndex]
-                let matches = known.items.filter {
-                    $0.bundle == NativeMenuBarPreferences.ownBundle &&
-                    abs(($0.frame.minX - known.frame.maxX) - (item.frame.minX - bars[index].frame.maxX)) < 1
-                }
-                guard matches.count == 1 else { throw Failure.boundary }
-                bars[index].items[itemIndex].id = matches[0].identifier
+                let identity = reference[ordinal].identifier
+                guard item.identifier.isEmpty || item.identifier == identity,
+                      item.frame.width > 0, bars[index].frame.contains(item.frame),
+                      ordinal == 0 || bars[index].items[ordered[ordinal - 1]].frame.maxX <= item.frame.minX
+                else { throw Failure.boundary }
+                bars[index].items[itemIndex].id = identity
             }
             guard Set(bars[index].items.map(\.id)).count == bars[index].items.count else { throw Failure.incomplete }
         }
@@ -117,9 +129,7 @@ struct NativeMenuBarSnapshot {
     }
 
     func plan() throws -> MenuBarSectionPlanner.Plan {
-        guard let first = bars.first else { throw Failure.incomplete }
-        let expectedIDs = Set(first.items.filter { !$0.isTransientSystemIndicator }.map(\.id))
-        guard bars.allSatisfy({ Set($0.items.filter { !$0.isTransientSystemIndicator }.map(\.id)) == expectedIDs }) else { throw Failure.incomplete }
+        guard !bars.isEmpty else { throw Failure.incomplete }
         // Validate each display's boundary directly. A fully expanded external
         // reference display is not required for a laptop-only overflow layout.
         let displays = bars.map { bar -> MenuBarSectionPlanner.Display in
@@ -188,11 +198,7 @@ struct NativeMenuBarSnapshot {
         try verifyHidden(plan.applicationKeys, comparedTo: before, markerHidden: true,
                          systemItems: plan.systemItemIDs)
         guard Set(bars.map(\.id)) == Set(boundaryReference.bars.map(\.id)),
-              let first = bars.first else { throw Failure.incomplete }
-        let visibleIDs = Set(first.items.filter { !$0.isTransientSystemIndicator }.map(\.id))
-        guard bars.allSatisfy({ Set($0.items.filter { !$0.isTransientSystemIndicator }.map(\.id)) == visibleIDs }) else {
-            throw Failure.incomplete
-        }
+              !bars.isEmpty else { throw Failure.incomplete }
         var leftApps = Set<String>(), rightApps = Set<String>(), leftSystems = Set<String>(), rightSystems = Set<String>()
         var updatedBars: [Bar] = []
         for current in bars {
@@ -221,6 +227,9 @@ struct NativeMenuBarSnapshot {
                 known.contains($0.id) && $0.bundle != NativeMenuBarPreferences.ownBundle &&
                     !$0.bundle.hasPrefix("com.apple.")
             }.map(\.bundle))
+            rightSystems.formUnion(current.items.filter {
+                known.contains($0.id) && $0.bundle.hasPrefix("com.apple.") && !$0.isTransientSystemIndicator
+            }.map(\.id))
             let historical = old.items.filter {
                 plan.applicationKeys.contains($0.bundle) || plan.systemItemIDs.contains($0.id) || $0.id == "MenuBox.marker"
             }
