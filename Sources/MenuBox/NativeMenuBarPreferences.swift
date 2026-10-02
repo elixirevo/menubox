@@ -5,6 +5,9 @@ import CoreFoundation
 /// Full Disk Access is required; no Apple-only entitlement is added to the app.
 final class NativeMenuBarPreferences {
     static let ownBundle = "com.elixirevo.MenuBox"
+    // These processes host multiple independent controls. Never toggle the
+    // entire host merely because it appears in the app preference store.
+    static let sharedSystemHosts: Set<String> = ["com.apple.MenuBarAgent", "com.apple.systemuiserver", "com.apple.controlcenter"]
     static let key = "trackedApplications"
     static let container = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Group Containers/group.com.apple.controlcenter", isDirectory: true)
@@ -83,30 +86,48 @@ final class NativeMenuBarPreferences {
     static func controlKeys(for selected: Set<String>, visible: Set<String>, executables: [String: URL],
                             in document: Document) throws -> Set<String> {
         guard !selected.contains(ownBundle) else { throw Failure.shared(ownBundle) }
-        func affectedBundle(_ location: Any) -> String? {
-            if let bundle = bundle(location) { return bundle }
-            if let url = executable(location) {
-                return executables.first { $0.value.standardizedFileURL == url }?.key
-            }
-            return nil
-        }
+        if let host = selected.intersection(sharedSystemHosts).sorted().first { throw Failure.shared(host) }
         var keys = Set<String>()
         for app in selected {
-            let candidates: [String]
-            if document.records[app] != nil {
-                candidates = [app]
-            } else {
-                candidates = document.records.filter { $0.value.locations.contains { affectedBundle($0) == app } }.map(\.key)
-            }
+            let candidates = controllingRecords(for: app, executables: executables, in: document)
             guard candidates.count == 1, let key = candidates.first,
                   let record = document.records[key], record.allowed else { throw Failure.missing(app) }
-            let affected = Set(record.locations.compactMap(affectedBundle)).union([key])
-            guard !affected.contains(ownBundle), affected.intersection(visible).isSubset(of: selected) else {
+            let affected = Set(record.locations.compactMap { affectedBundle($0, executables: executables) }).union([key])
+            guard !affected.contains(ownBundle), affected.isDisjoint(with: sharedSystemHosts),
+                  affected.intersection(visible).isSubset(of: selected) else {
                 throw Failure.shared(app)
             }
             keys.insert(key)
         }
         return keys
+    }
+
+    /// Ownership discovery also works while our journal has the record hidden.
+    /// Allowed flags and collateral effects are checked again before any write.
+    static func applicationControlBundles(_ bundles: Set<String>, executables: [String: URL],
+                                          in document: Document) -> Set<String> {
+        Set(bundles.subtracting(sharedSystemHosts).subtracting([ownBundle]).filter {
+            let candidates = controllingRecords(for: $0, executables: executables, in: document)
+            guard candidates.count == 1, let key = candidates.first, let record = document.records[key] else { return false }
+            let affected = Set(record.locations.compactMap { affectedBundle($0, executables: executables) }).union([key])
+            return !affected.contains(ownBundle) && affected.isDisjoint(with: sharedSystemHosts)
+        })
+    }
+
+    private static func controllingRecords(for app: String, executables: [String: URL],
+                                           in document: Document) -> [String] {
+        if document.records[app] != nil { return [app] }
+        return document.records.filter {
+            $0.value.locations.contains { affectedBundle($0, executables: executables) == app }
+        }.map(\.key)
+    }
+
+    private static func affectedBundle(_ location: Any, executables: [String: URL]) -> String? {
+        if let bundle = bundle(location) { return bundle }
+        if let url = executable(location) {
+            return executables.first { $0.value.standardizedFileURL == url }?.key
+        }
+        return nil
     }
 
     static func missingSelfLocations(for selected: Set<String>, keys: Set<String>,
@@ -133,7 +154,7 @@ final class NativeMenuBarPreferences {
             throw Failure.schema
         }
         for (key, flag) in allowed {
-            guard key != ownBundle, let record = document.records[key],
+            guard key != ownBundle, !sharedSystemHosts.contains(key), let record = document.records[key],
                   var value = entries[record.index] as? [String: Any] else { throw Failure.missing(key) }
             value["isAllowed"] = flag
             var locations = record.locations

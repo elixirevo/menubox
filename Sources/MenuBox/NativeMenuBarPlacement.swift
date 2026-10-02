@@ -44,7 +44,7 @@ enum NativeMenuBarPlacement {
     }
 
     static func plan(bundle: String, identifier: String, positions: [String: Double]) throws -> Change {
-        guard !bundle.isEmpty, !bundle.hasPrefix("com.apple."), bundle != NativeMenuBarPreferences.ownBundle,
+        guard canMove(bundle),
               let box = positions[boxKey], box > 0 else { throw Failure.ambiguous }
         let prefix = "status:\(bundle)::"
         let candidates = positions.keys.filter { $0.hasPrefix(prefix) }
@@ -67,6 +67,19 @@ enum NativeMenuBarPlacement {
         var result = current
         result[change.key] = change.temporary
         return result
+    }
+
+    private static func canMove(_ bundle: String) -> Bool {
+        !bundle.isEmpty && !NativeMenuBarPreferences.sharedSystemHosts.contains(bundle) &&
+            bundle != NativeMenuBarPreferences.ownBundle
+    }
+
+    static func validate(_ change: Change) throws {
+        let parts = change.key.components(separatedBy: "::")
+        guard parts.count >= 2, parts[0].hasPrefix("status:"),
+              canMove(String(parts[0].dropFirst("status:".count))),
+              change.original.isFinite, change.temporary.isFinite, change.original > change.temporary,
+              change.temporary >= 0 else { throw Failure.ambiguous }
     }
 
     static func restoring(_ change: Change, in current: [String: Double]) -> [String: Double] {
@@ -117,10 +130,7 @@ enum NativeMenuBarPlacement {
         guard FileManager.default.fileExists(atPath: journalURL.path) else { return }
         let change = try PropertyListDecoder().decode(Change.self, from: Data(contentsOf: journalURL))
         guard token == nil || token == change.token else { return }
-        guard change.key.hasPrefix("status:"), !change.key.hasPrefix("status:com.apple."),
-              !change.key.hasPrefix("status:\(NativeMenuBarPreferences.ownBundle)::"),
-              change.original.isFinite, change.temporary.isFinite, change.original > change.temporary,
-              change.temporary >= 0 else { throw Failure.ambiguous }
+        try validate(change)
         let defaults = try preferences()
         let current = try decode(defaults.object(forKey: preferenceKey))
         let restored = restoring(change, in: current)

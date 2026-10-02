@@ -3,6 +3,24 @@ import XCTest
 @testable import MenuBox
 
 final class NativeMenuBarPlacementTests: XCTestCase {
+    func testIndependentAppleStatusItemCanMoveAndRecoverButSharedHostsCannot() throws {
+        let bundle = "com.apple.Passwords.MenuBarExtra"
+        let key = "status:\(bundle)::Item::0"
+        var original = positions
+        original[key] = 900
+        let change = try NativeMenuBarPlacement.plan(bundle: bundle, identifier: "Item::0", positions: original)
+        XCTAssertNoThrow(try NativeMenuBarPlacement.validate(change))
+        let moved = try NativeMenuBarPlacement.applying(change, to: original)
+        XCTAssertEqual(NativeMenuBarPlacement.restoring(change, in: moved), original)
+        for host in NativeMenuBarPreferences.sharedSystemHosts.union([NativeMenuBarPreferences.ownBundle]) {
+            var invalid = change
+            invalid.key = "status:\(host)::Item-0"
+            original[invalid.key] = 900
+            XCTAssertThrowsError(try NativeMenuBarPlacement.plan(bundle: host, identifier: "Item-0", positions: original))
+            XCTAssertThrowsError(try NativeMenuBarPlacement.validate(invalid))
+        }
+    }
+
     private let app = "com.example.dynamic"
     private var key: String { "status:\(app)::Item-0" }
     private var positions: [String: Double] {

@@ -3,6 +3,47 @@ import XCTest
 @testable import MenuBox
 
 final class NativeMenuBarPreferencesTests: XCTestCase {
+    func testAppleHelperUsesDiscoveredOwnerAndRestoresWithoutAnAppAllowlist() throws {
+        let owner = "com.apple.Passwords", helper = "com.apple.Passwords.MenuBarExtra"
+        let original = try document([(owner, true, [helper]), ("right", true, ["right"])])
+        XCTAssertEqual(NativeMenuBarPreferences.applicationControlBundles([helper, "com.apple.FutureApp"],
+            executables: [:], in: original), [helper])
+        let keys = try NativeMenuBarPreferences.controlKeys(for: [helper], visible: [helper, "right"],
+            executables: [:], in: original)
+        XCTAssertEqual(keys, [owner])
+        let written = try NativeMenuBarPreferences.changing(original, allowed: [owner: false])
+        let current = try NativeMenuBarPreferences.decode(written)
+        XCTAssertEqual(NativeMenuBarPreferences.applicationControlBundles([helper], executables: [:], in: current), [helper])
+        let journal = NativeMenuBarRecovery.Journal(original: original.data, written: written, previousAllowed: [owner: true])
+        XCTAssertEqual(try NativeMenuBarRecovery.restorationData(journal, current: current), original.data)
+    }
+
+    func testAppleHelperCannotHideProtectedSiblingOrSharedSystemHost() throws {
+        let helper = "com.apple.FutureApp.MenuBarExtra"
+        for sibling in ["right", "com.apple.MenuBarAgent", "com.apple.systemuiserver"] {
+            let doc = try document([("com.apple.FutureApp", true, [helper, sibling])])
+            XCTAssertThrowsError(try NativeMenuBarPreferences.controlKeys(for: [helper], visible: [helper, sibling],
+                executables: [:], in: doc))
+        }
+        for host in NativeMenuBarPreferences.sharedSystemHosts {
+            let doc = try document([(host, true, [host])])
+            XCTAssertTrue(NativeMenuBarPreferences.applicationControlBundles([host], executables: [:], in: doc).isEmpty)
+            XCTAssertThrowsError(try NativeMenuBarPreferences.controlKeys(for: [host], visible: [host], executables: [:], in: doc))
+            XCTAssertThrowsError(try NativeMenuBarPreferences.changing(doc, allowed: [host: false]))
+            let sharedRecord = try document([(host, true, [helper])])
+            XCTAssertTrue(NativeMenuBarPreferences.applicationControlBundles([helper], executables: [:], in: sharedRecord).isEmpty)
+            XCTAssertThrowsError(try NativeMenuBarPreferences.controlKeys(for: [helper], visible: [helper], executables: [:], in: sharedRecord))
+        }
+    }
+
+    func testMissingAndAmbiguousAppleRecordsNeverGuessAControlKey() throws {
+        let helper = "com.apple.FutureApp.MenuBarExtra"
+        for doc in [try document([]), try document([("one", true, [helper]), ("two", true, [helper])])] {
+            XCTAssertTrue(NativeMenuBarPreferences.applicationControlBundles([helper], executables: [:], in: doc).isEmpty)
+            XCTAssertThrowsError(try NativeMenuBarPreferences.controlKeys(for: [helper], visible: [helper], executables: [:], in: doc))
+        }
+    }
+
     private func location(_ bundle: String) -> [String: Any] { ["bundle": ["_0": bundle]] }
     private func document(_ records: [(String, Bool, [String])]) throws -> NativeMenuBarPreferences.Document {
         let entries: [Any] = records.flatMap { bundle, allowed, items -> [Any] in

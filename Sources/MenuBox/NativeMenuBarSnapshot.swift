@@ -19,6 +19,7 @@ struct NativeMenuBarSnapshot {
     }
     let bars: [Bar]
     let executables: [String: URL]
+    var applicationControlBundles: Set<String> = []
 
     enum Failure: LocalizedError {
         case permission, incomplete, boundary, verification
@@ -34,8 +35,10 @@ struct NativeMenuBarSnapshot {
 
     static func capture(markerHidden: Bool = false) throws -> NativeMenuBarSnapshot {
         let raw = try captureUnresolved()
+        let document = try NativeMenuBarPreferences().read()
         return NativeMenuBarSnapshot(bars: try resolveControls(raw.bars, markerHidden: markerHidden),
-                                     executables: raw.executables)
+            executables: raw.executables, applicationControlBundles: NativeMenuBarPreferences.applicationControlBundles(
+                Set(raw.bars.flatMap(\.items).map(\.bundle)), executables: raw.executables, in: document))
     }
 
     /// Keep raw host membership available for repairing missing local replicas.
@@ -156,13 +159,23 @@ struct NativeMenuBarSnapshot {
                 let owner: MenuBarSectionPlanner.Owner
                 if item.id == "MenuBox.main" { owner = .box }
                 else if item.id == "MenuBox.marker" { owner = .marker }
-                else if item.bundle.hasPrefix("com.apple.") { owner = .system(item.id) }
+                else if usesSystemControl(item) { owner = .system(item.id) }
                 else { owner = .application(item.bundle) }
                 return .init(id: item.id, owner: owner, frame: item.frame)
             }
             return .init(id: bar.id, frame: bar.frame, items: items, isResolved: true)
         }
         return try MenuBarSectionPlanner.plan(displays: displays)
+    }
+
+    /// Manufacturer is not a capability. Independently owned app records take
+    /// the common path; only shared hosts and known control adapters are special.
+    /// Unknown standalone apps still use common ownership validation, which
+    /// retries missing records and refuses ambiguous/collateral writes.
+    private func usesSystemControl(_ item: Item) -> Bool {
+        if NativeMenuBarPreferences.sharedSystemHosts.contains(item.bundle) { return true }
+        if applicationControlBundles.contains(item.bundle) { return false }
+        return NativeSystemMenuBarPreferences.Setting.allCases.contains { $0.itemID == item.id }
     }
 
     func verifyHidden(_ applications: Set<String>, comparedTo before: NativeMenuBarSnapshot,
@@ -231,10 +244,10 @@ struct NativeMenuBarSnapshot {
                 guard current.frame.contains(item.frame), item.frame.width > 0, item.frame.height > 0,
                       item.bundle != NativeMenuBarPreferences.ownBundle else { throw Failure.incomplete }
                 if item.frame.maxX <= anchor.frame.minX {
-                    if item.bundle.hasPrefix("com.apple.") { leftSystems.insert(item.id) }
+                    if usesSystemControl(item) { leftSystems.insert(item.id) }
                     else { leftApps.insert(item.bundle) }
                 } else if item.frame.minX >= anchor.frame.maxX {
-                    if item.bundle.hasPrefix("com.apple.") { rightSystems.insert(item.id) }
+                    if usesSystemControl(item) { rightSystems.insert(item.id) }
                     else { rightApps.insert(item.bundle) }
                 } else { throw Failure.boundary }
             }
@@ -242,10 +255,10 @@ struct NativeMenuBarSnapshot {
             // if another item of the same app has just appeared on the left.
             rightApps.formUnion(current.items.filter {
                 known.contains($0.id) && $0.bundle != NativeMenuBarPreferences.ownBundle &&
-                    !$0.bundle.hasPrefix("com.apple.")
+                    !usesSystemControl($0)
             }.map(\.bundle))
             rightSystems.formUnion(current.items.filter {
-                known.contains($0.id) && $0.bundle.hasPrefix("com.apple.") && !$0.isTransientSystemIndicator
+                known.contains($0.id) && usesSystemControl($0) && !$0.isTransientSystemIndicator
             }.map(\.id))
             let historical = old.items.filter {
                 plan.applicationKeys.contains($0.bundle) || plan.systemItemIDs.contains($0.id) || $0.id == "MenuBox.marker"
@@ -256,7 +269,8 @@ struct NativeMenuBarSnapshot {
         let applications = plan.applicationKeys.union(leftApps)
         let systems = plan.systemItemIDs.union(leftSystems)
         let updated = NativeMenuBarSnapshot(bars: updatedBars,
-            executables: before.executables.merging(executables, uniquingKeysWith: { _, new in new }))
+            executables: before.executables.merging(executables, uniquingKeysWith: { _, new in new }),
+            applicationControlBundles: before.applicationControlBundles.union(applicationControlBundles))
         let protected = Dictionary(uniqueKeysWithValues: updatedBars.map { bar in
             (bar.id, Set(bar.items.filter { !applications.contains($0.bundle) &&
                 !systems.contains($0.id) && !$0.isTransientSystemIndicator }.map(\.id)))

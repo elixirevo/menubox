@@ -3,6 +3,56 @@ import XCTest
 @testable import MenuBox
 
 final class NativeMenuBarSnapshotTests: XCTestCase {
+    func testStandaloneAppleAppsUseCommonRouteWithoutBeingListed() throws {
+        for bundle in ["com.apple.Passwords.MenuBarExtra", "com.apple.FutureApp.MenuBarExtra", "org.example.NewApp"] {
+            var visible = bar(0)
+            visible.items[0] = item(bundle + ":0", bundle, 10)
+            let plan = try NativeMenuBarSnapshot(bars: [visible], executables: [:]).plan()
+            XCTAssertTrue(plan.applicationKeys.contains(bundle))
+            XCTAssertTrue(plan.systemItemIDs.isEmpty)
+        }
+    }
+
+    func testKnownAdapterUsesCommonRecordWhenAvailableButSharedHostsNeverDo() throws {
+        let input = NativeSystemMenuBarPreferences.Setting.inputMenu.itemID
+        var visible = bar(0)
+        visible.items[0] = item(input, "com.apple.TextInputMenuAgent", 10)
+        let fallback = try NativeMenuBarSnapshot(bars: [visible], executables: [:]).plan()
+        XCTAssertEqual(fallback.systemItemIDs, [input])
+        let common = try NativeMenuBarSnapshot(bars: [visible], executables: [:],
+            applicationControlBundles: ["com.apple.TextInputMenuAgent"]).plan()
+        XCTAssertTrue(common.systemItemIDs.isEmpty)
+        XCTAssertTrue(common.applicationKeys.contains("com.apple.TextInputMenuAgent"))
+        visible.items[0] = item("unknown-control", "com.apple.MenuBarAgent", 10)
+        let shared = try NativeMenuBarSnapshot(bars: [visible], executables: [:],
+            applicationControlBundles: ["com.apple.MenuBarAgent"]).plan()
+        XCTAssertEqual(shared.systemItemIDs, ["unknown-control"])
+        XCTAssertFalse(shared.applicationKeys.contains("com.apple.MenuBarAgent"))
+    }
+
+    func testAppleAppArrivingWhileHiddenUsesCommonRouteAndProtectsOtherDisplays() throws {
+        let bundle = "com.apple.Passwords.MenuBarExtra"
+        let before = NativeMenuBarSnapshot(bars: [bar(-200), bar(0)], executables: [:])
+        var left = hiddenBar(bar(-200)), right = hiddenBar(bar(0))
+        left.items.append(item(bundle + ":0", bundle, -170))
+        let update = try NativeMenuBarSnapshot(bars: [left, right], executables: [:])
+            .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan())
+        XCTAssertTrue(update.plan.applicationKeys.contains(bundle))
+        XCTAssertTrue(update.plan.systemItemIDs.isEmpty)
+        right.items.append(item(bundle + ":0", bundle, 170))
+        XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [left, right], executables: [:])
+            .addingItemsWhileHidden(comparedTo: before, boundaryReference: before, plan: before.plan()))
+        let protectedBefore = NativeMenuBarSnapshot(bars: [bar(-200), barWithAppleRight(bundle)], executables: [:])
+        XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [left, right], executables: [:])
+            .addingItemsWhileHidden(comparedTo: protectedBefore, boundaryReference: protectedBefore, plan: protectedBefore.plan()))
+    }
+
+    private func barWithAppleRight(_ bundle: String) -> NativeMenuBarSnapshot.Bar {
+        var value = bar(0)
+        value.items.append(item(bundle + ":0", bundle, 170))
+        return value
+    }
+
     func testCapturesOnlyMenuBarsOnConnectedDisplays() {
         let displays = [CGRect(x: 0, y: 0, width: 1728, height: 1117),
                         CGRect(x: -2560, y: -323, width: 2560, height: 1440)]
