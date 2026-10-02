@@ -37,6 +37,9 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     private(set) var isHidden = false
     private(set) var isTransitioning = false
     private var isSuspended = false
+    var canRepairStatusItems: Bool {
+        !isSuspended && temporaryReveal == nil && (!isTransitioning || baseline == nil)
+    }
     private var generation = UUID()
     private var operation: Task<Void, Never>?
     private var helper: Process?
@@ -277,6 +280,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
              MenuBarSectionPlanner.Failure.incompleteSnapshot,
              MenuBarSectionPlanner.Failure.missingOrAmbiguousControls,
              MenuBarSectionPlanner.Failure.ambiguousGeometry,
+             NativeMenuBarPreferences.Failure.missing,
              NativeMenuBarPreferences.Failure.concurrentChange, NativeSystemMenuBarPreferences.Failure.concurrentChange:
             return true
         default: return false

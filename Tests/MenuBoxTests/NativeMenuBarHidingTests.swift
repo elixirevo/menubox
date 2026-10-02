@@ -13,6 +13,7 @@ final class NativeMenuBarHidingTests: XCTestCase {
         var checks = 0
         var errors: [String] = []
         var denied = false
+        var missingRecords = 0
         var includeSecond = false
         var secondX: CGFloat = 35
         var extensionDenied = false
@@ -52,6 +53,10 @@ final class NativeMenuBarHidingTests: XCTestCase {
                         verification: UInt64 = 1_000_000,
                         retries: [UInt64] = [1_000_000, 2_000_000, 3_000_000]) -> NativeMenuBarHiding {
             let backend = NativeMenuBarHiding.Backend(capture: { _ in try self.snapshot() }, apply: { _, plan in
+                if self.missingRecords > 0 {
+                    self.missingRecords -= 1
+                    throw NativeMenuBarPreferences.Failure.missing("left")
+                }
                 XCTAssertEqual(plan.applicationKeys, self.includeSecond ? ["left", "second"] : ["left"])
                 self.writes += 1
                 self.appliedApplications = plan.applicationKeys
@@ -98,6 +103,31 @@ final class NativeMenuBarHidingTests: XCTestCase {
         hiding.hide()
         await fulfillment(of: [applied], timeout: 0.2)
         XCTAssertTrue(bar.markerHidden)
+    }
+
+    func testDelayedPreferenceRegistrationRetriesBeforeHiding() async throws {
+        let bar = MenuBar(), hiding = bar.controller()
+        defer { hiding.stop() }
+        bar.missingRecords = 2
+        hiding.hide()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        XCTAssertEqual(bar.missingRecords, 0)
+        XCTAssertEqual(bar.writes, 1)
+        XCTAssertTrue(bar.errors.isEmpty)
+    }
+
+    func testRecoveryWaitsForSleepAndAppliedLayoutVerification() async throws {
+        let bar = MenuBar(), hiding = bar.controller(verification: 30_000_000)
+        defer { hiding.stop() }
+        XCTAssertTrue(hiding.canRepairStatusItems)
+        hiding.suspend()
+        XCTAssertFalse(hiding.canRepairStatusItems)
+        hiding.resume()
+        hiding.hide()
+        try await eventually { hiding.isHidden }
+        XCTAssertFalse(hiding.canRepairStatusItems)
+        try await eventually { !hiding.isTransitioning }
+        XCTAssertTrue(hiding.canRepairStatusItems)
     }
 
     func testMarkerLayoutIsSubmittedAfterWriteWithoutWaitingForHostVerification() async throws {

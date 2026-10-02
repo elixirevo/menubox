@@ -19,7 +19,7 @@ private enum GlassBoxStyle {
     static let material: NSVisualEffectView.Material = .popover
 }
 
-final class BoxWindowController {
+final class BoxWindowController: NSObject {
     private var panel: NSPanel?
     private var localMonitor: Any?
     private var globalMonitor: Any?
@@ -28,6 +28,7 @@ final class BoxWindowController {
     private var proxyMenuHandler: ProxyMenuHandler?
     private var activeProxyMenu: NSMenu?
     private let settingsStore: SettingsStore
+    private var hidingError: String?
     var onForwardedClick: ((MenuBarProxyClick, CGMouseButton) -> Void)?
     var onClose: (() -> Void)?
     var onMenuInteractionEnded: (() -> Void)?
@@ -35,6 +36,7 @@ final class BoxWindowController {
 
     init(settingsStore: SettingsStore) {
         self.settingsStore = settingsStore
+        super.init()
     }
 
     var isShowing: Bool {
@@ -193,8 +195,48 @@ final class BoxWindowController {
         if existingPanel == nil { installDismissMonitors(panel: panel) }
     }
 
+    func showHidingError(_ message: String, anchorFrame: NSRect, screen: NSScreen) {
+        if hidingError == message, isShowing { return }
+        close()
+        hidingError = message
+        let width = min(420, screen.visibleFrame.width - 32)
+        let text = NSTextField(wrappingLabelWithString: message)
+        text.font = .systemFont(ofSize: 13)
+        text.isSelectable = true
+        let textHeight = text.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width - 32, height: 10_000)).height ?? 60
+        let height = textHeight + 102
+        let frame = MenuBarGeometry.clamp(NSRect(x: anchorFrame.midX - width / 2,
+            y: MenuBarGeometry.menuBarRect(for: screen).minY - height - 6, width: width, height: height),
+            to: screen.visibleFrame.insetBy(dx: 8, dy: 8))
+        let panel = FloatingPanel(contentRect: frame)
+        panel.identifier = NSUserInterfaceItemIdentifier("MenuBox.hidingError")
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 3)
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        let content = NSVisualEffectView(frame: NSRect(origin: .zero, size: frame.size))
+        content.material = .popover
+        content.state = .active
+        content.wantsLayer = true
+        content.layer?.cornerRadius = 12
+        content.layer?.masksToBounds = true
+        let title = NSTextField(labelWithString: "Couldn’t hide menu bar icons")
+        title.font = .boldSystemFont(ofSize: 13)
+        title.frame = NSRect(x: 16, y: height - 36, width: width - 32, height: 20)
+        text.frame = NSRect(x: 16, y: 54, width: width - 32, height: textHeight)
+        let dismiss = NSButton(title: "OK", target: self, action: #selector(close))
+        dismiss.bezelStyle = .rounded
+        dismiss.keyEquivalent = "\r"
+        dismiss.frame = NSRect(x: width - 88, y: 12, width: 72, height: 28)
+        [title, text, dismiss].forEach { content.addSubview($0) }
+        panel.contentView = content
+        self.panel = panel
+        panel.orderFrontRegardless()
+        installDismissMonitors(panel: panel)
+    }
+
     func refreshProxyTargets(anchorFrame: NSRect, screen: NSScreen, proxyTargets: [MenuBarProxyTarget]) {
-        guard isShowing, !isMenuInteractionActive, activeProxyMenu == nil else { return }
+        guard isShowing, hidingError == nil, !isMenuInteractionActive, activeProxyMenu == nil else { return }
         if let content = iconStripView,
            content.proxyTargets.map(\.identity) == proxyTargets.map(\.identity),
            content.proxyTargets.map(\.displayName) == proxyTargets.map(\.displayName) {
@@ -277,7 +319,8 @@ final class BoxWindowController {
         menu.popUp(positioning: nil, at: localPoint, in: contentView)
     }
 
-    func close() {
+    @objc func close() {
+        hidingError = nil
         forwardedClickRestoreWorkItem?.cancel()
         forwardedClickRestoreWorkItem = nil
         activeProxyMenu?.cancelTrackingWithoutAnimation()

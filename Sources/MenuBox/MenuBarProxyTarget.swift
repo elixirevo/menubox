@@ -194,17 +194,20 @@ enum MenuBarProxyScanner {
     private static let statusItemScanMessagingTimeout: Float = 0.15
 
     static func runningApplicationInfo(excludingProcessIdentifier excludedPID: pid_t) -> [RunningApplicationInfo] {
-        NSWorkspace.shared.runningApplications.compactMap { app in
-            guard app.processIdentifier > 0, app.processIdentifier != excludedPID else {
+        let observations = NSWorkspace.shared.runningApplications.compactMap { app -> RunningApplicationInfo? in
+            let pid = app.processIdentifier
+            guard pid > 0, pid != excludedPID else {
                 return nil
             }
             return RunningApplicationInfo(
-                processIdentifier: app.processIdentifier,
+                processIdentifier: pid,
                 bundleIdentifier: app.bundleIdentifier ?? "",
                 localizedName: app.localizedName ?? "",
                 icon: app.icon
             )
         }
+        return Array(RunningApplicationIndex.make(observations, pid: { $0.processIdentifier },
+                                                  bundle: { $0.bundleIdentifier }).values)
     }
 
     static func targets(in appKitRect: NSRect) -> [MenuBarProxyTarget] {
@@ -283,11 +286,10 @@ enum MenuBarProxyScanner {
         let startedAt = CFAbsoluteTimeGetCurrent()
         var targetsByKey: [MenuBarTargetIdentity: MenuBarProxyTarget] = [:]
         var completeOwners = Set<pid_t>()
-        let applicationInfoByPID = Dictionary(uniqueKeysWithValues: runningApplications.map {
-            ($0.processIdentifier, $0)
-        })
+        let applicationInfoByPID = RunningApplicationIndex.make(runningApplications,
+            pid: { $0.processIdentifier }, bundle: { $0.bundleIdentifier })
 
-        for app in runningApplications {
+        for app in applicationInfoByPID.values {
             if Task.isCancelled { break }
             let appElement = AXUIElementCreateApplication(app.processIdentifier)
             applyStatusItemScanTimeout(to: appElement)

@@ -90,6 +90,7 @@ final class MenuBoxController: NSObject {
     private var hiddenMenuTask: Task<Void, Never>?
     private var pendingMenuPlacementRestore: (token: UUID, target: MenuBarProxyTarget, display: CGRect)?
     private var isHidden = false
+    private var lastHidingError: String?
     private var usesNativeHiding: Bool {
         ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27
     }
@@ -101,6 +102,7 @@ final class MenuBoxController: NSObject {
         hiding.onChange = { [weak self] hidden, error in
             guard let self else { return }
             self.isHidden = hidden
+            if hidden, error == nil { self.lastHidingError = nil }
             self.statusItem?.button?.toolTip = error ?? "MenuBox"
             if let error { self.showHidingError(error) }
             if error == nil {
@@ -367,6 +369,7 @@ final class MenuBoxController: NSObject {
     }
 
     private func revealMenuBarIcons() {
+        lastHidingError = nil
         hiddenMenuTask?.cancel()
         try? NativeMenuBarPlacement.restore()
         hideWhenPermissionsReady = false
@@ -376,6 +379,7 @@ final class MenuBoxController: NSObject {
     }
 
     private func hideHiddenIcons() {
+        lastHidingError = nil
         autoHideTimer?.invalidate()
         autoHideTimer = nil
         captureTask?.cancel()
@@ -701,9 +705,14 @@ final class MenuBoxController: NSObject {
     }
 
     private func repairMissingStatusItemReplicas() {
-        guard !isStopping, usesNativeHiding, !boxWindowController.isMenuInteractionActive,
-              let raw = try? NativeMenuBarSnapshot.captureUnresolved(),
-              replicaRecovery.shouldRepair(bars: raw.bars,
+        guard !isStopping, usesNativeHiding, nativeHiding.canRepairStatusItems,
+              !boxWindowController.isMenuInteractionActive,
+              !NSEvent.modifierFlags.contains(.command),
+              let raw = try? NativeMenuBarSnapshot.captureUnresolved() else {
+            replicaRecovery.resetObservation()
+            return
+        }
+        guard replicaRecovery.shouldRepair(bars: raw.bars,
                   markerHidden: markerPresentation?.isHidden == true,
                   now: ProcessInfo.processInfo.systemUptime) else { return }
         let markerHidden = markerPresentation?.isHidden == true
@@ -796,9 +805,9 @@ final class MenuBoxController: NSObject {
             await MainActor.run { [weak self] in
                 guard let self, !self.isStopping else { return }
                 self.proxyTargetScanTask = nil
-                let owners = Dictionary(uniqueKeysWithValues:
-                    MenuBarProxyScanner.runningApplicationInfo(excludingProcessIdentifier: excludedPID)
-                        .map { ($0.processIdentifier, $0.bundleIdentifier) })
+                let owners = RunningApplicationIndex.make(
+                    MenuBarProxyScanner.runningApplicationInfo(excludingProcessIdentifier: excludedPID),
+                    pid: { $0.processIdentifier }, bundle: { $0.bundleIdentifier }).mapValues(\.bundleIdentifier)
                 self.targetInventory.merge(scan.targets, runningOwners: owners, completeOwners: scan.completeOwners,
                     preservingApplications: self.usesNativeHiding ? self.nativeHiding.hiddenApplications : [])
                 self.cachedProxyTargetsLoadedAt = Date()
@@ -1433,6 +1442,7 @@ final class MenuBoxController: NSObject {
     }
 
     @objc private func screenParametersChanged() {
+        replicaRecovery.resetObservation()
         store.refreshDisplays()
         if usesNativeHiding { nativeHiding.environmentChanged(reason: "display parameters") }
         if isHidden {
@@ -1442,6 +1452,7 @@ final class MenuBoxController: NSObject {
     }
 
     @objc private func activeSpaceChanged() {
+        replicaRecovery.resetObservation()
         if usesNativeHiding { nativeHiding.environmentChanged(reason: "active Space") }
         if isHidden {
             hideHiddenIcons()
@@ -1473,6 +1484,7 @@ final class MenuBoxController: NSObject {
 
     @objc private func workspaceWillSleep(_ notification: Notification) {
         guard usesNativeHiding else { return }
+        replicaRecovery.resetObservation()
         hiddenMenuTask?.cancel()
         try? NativeMenuBarPlacement.restore()
         autoHideTimer?.invalidate()
@@ -1481,6 +1493,7 @@ final class MenuBoxController: NSObject {
     }
 
     @objc private func workspaceDidWake(_ notification: Notification) {
+        replicaRecovery.resetObservation()
         if usesNativeHiding { nativeHiding.resume(reason: notification.name.rawValue) }
         else if isHidden { hideHiddenIcons() }
         scheduleProxyTargetCacheRefreshes(delays: ProxyTargetCacheTiming.environmentRefreshDelays)
@@ -1490,9 +1503,11 @@ final class MenuBoxController: NSObject {
         permissions.refresh()
         // Missing access has its own actionable settings page, not a transient
         // Box error. PermissionStore presents it once per loss of access.
-        guard permissions.snapshot.isReady else { return }
-        guard let frame = statusItem?.button?.window?.frame,
-              let screen = MenuBarGeometry.screen(containing: NSPoint(x: frame.midX, y: frame.midY)) else { return }
-        boxWindowController.showProxyTargets(anchorFrame: frame, screen: screen, proxyTargets: [], statusText: message)
+        guard permissions.snapshot.isReady, message != lastHidingError,
+              let screen = MenuBarGeometry.screen(containing: NSEvent.mouseLocation) else { return }
+        boxDisplayID = screen.menuBoxDisplayId
+        let frame = boxAnchorFrame ?? MenuBarGeometry.menuBarRect(for: screen)
+        lastHidingError = message
+        boxWindowController.showHidingError(message, anchorFrame: frame, screen: screen)
     }
 }

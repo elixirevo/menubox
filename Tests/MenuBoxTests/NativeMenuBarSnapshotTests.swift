@@ -3,6 +3,19 @@ import XCTest
 @testable import MenuBox
 
 final class NativeMenuBarSnapshotTests: XCTestCase {
+    func testCapturesOnlyMenuBarsOnConnectedDisplays() {
+        let displays = [CGRect(x: 0, y: 0, width: 1728, height: 1117),
+                        CGRect(x: -2560, y: -323, width: 2560, height: 1440)]
+        XCTAssertTrue(NativeMenuBarSnapshot.isMenuBar(CGRect(x: 0, y: 0, width: 1728, height: 33), on: displays))
+        XCTAssertTrue(NativeMenuBarSnapshot.isMenuBar(CGRect(x: -2560, y: -323, width: 2560, height: 30), on: displays))
+        for frame in [CGRect(x: -5120, y: -323, width: 2560, height: 30),
+                      CGRect(x: 1200, y: 33, width: 400, height: 600),
+                      CGRect(x: 0, y: 0, width: 1728, height: 700),
+                      CGRect(x: 0, y: 200, width: 1728, height: 33)] {
+            XCTAssertFalse(NativeMenuBarSnapshot.isMenuBar(frame, on: displays))
+        }
+    }
+
     private let own = NativeMenuBarPreferences.ownBundle
     private func item(_ id: String, _ bundle: String, _ x: CGFloat) -> NativeMenuBarSnapshot.Item {
         .init(id: id, bundle: bundle, frame: CGRect(x: x, y: 0, width: 20, height: 24), identifier: id)

@@ -41,9 +41,12 @@ func identifier(_ element: AXUIElement, depth: Int = 0) -> String {
           pid == agent.processIdentifier else { return "" }
     return children(element).lazy.map { identifier($0, depth: depth + 1) }.first { !$0.isEmpty } ?? ""
 }
-let running = Dictionary(uniqueKeysWithValues: NSWorkspace.shared.runningApplications.map {
+let identities = NSWorkspace.shared.runningApplications.map {
     ($0.processIdentifier, $0.bundleIdentifier ?? "")
-})
+}.filter { $0.0 > 0 }
+// Diagnostics must tolerate the same process-list race as the application.
+// A conflicting duplicate remains unattributed instead of guessing its owner.
+let running = Dictionary(identities, uniquingKeysWith: { $0 == $1 ? $0 : "" })
 var bars: [[String: Any]] = []
 for window in children(AXUIElementCreateApplication(agent.processIdentifier), kAXWindowsAttribute as String) {
     guard let barFrame = rect(window) else { continue }

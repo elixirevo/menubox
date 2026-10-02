@@ -6,13 +6,21 @@ import Foundation
 struct StatusItemReplicaRecovery {
     private var previousMissing = Set<String>()
     private var lastRepair: TimeInterval = -.infinity
+    private var previousMarkerHidden: Bool?
+
+    mutating func resetObservation() {
+        previousMissing = []
+        previousMarkerHidden = nil
+    }
 
     mutating func shouldRepair(bars: [NativeMenuBarSnapshot.Bar], markerHidden: Bool,
                                now: TimeInterval) -> Bool {
         guard !bars.isEmpty else {
-            previousMissing = []
+            resetObservation()
             return false
         }
+        if previousMarkerHidden != markerHidden { previousMissing = [] }
+        previousMarkerHidden = markerHidden
         let expected = markerHidden ? 1 : 2
         let missing = Set(bars.filter { bar in
             let own = bar.items.filter {

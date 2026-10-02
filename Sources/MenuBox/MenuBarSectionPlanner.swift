@@ -30,11 +30,24 @@ enum MenuBarSectionPlanner {
         let systemItemIDs: Set<String>
     }
 
-    enum Failure: Error, Equatable {
+    enum Failure: LocalizedError, Equatable {
         case incompleteSnapshot
         case missingOrAmbiguousControls(String)
         case ambiguousGeometry(String)
         case applicationSpansBoundary(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .incompleteSnapshot:
+                return "The menu bar layout is still updating. Try hiding the icons again."
+            case .missingOrAmbiguousControls:
+                return "MenuBox’s box or marker is missing on a display. Wait for the icons to return, then try again."
+            case .ambiguousGeometry:
+                return "The marker overlaps another icon or is outside the visible menu bar. Command-drag it to a clear position, then try again."
+            case .applicationSpansBoundary(let item):
+                return "\(item) appears on both sides of the marker. Place its icons on the same side on every display before hiding."
+            }
+        }
     }
 
     static func plan(displays: [Display]) throws -> Plan {

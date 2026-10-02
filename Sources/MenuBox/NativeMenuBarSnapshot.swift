@@ -45,14 +45,22 @@ struct NativeMenuBarSnapshot {
             throw Failure.incomplete
         }
         let running = NSWorkspace.shared.runningApplications
-        let bundles = Dictionary(uniqueKeysWithValues: running.map { ($0.processIdentifier, $0.bundleIdentifier ?? "") })
+        // Read identity once before indexing: NSRunningApplication properties
+        // can change as another process exits during this scan.
+        let identities = running.map { (pid: $0.processIdentifier, bundle: $0.bundleIdentifier ?? "") }
+        let bundles = RunningApplicationIndex.make(identities, pid: { $0.pid }, bundle: { $0.bundle })
+            .mapValues(\.bundle)
         var executables: [String: URL] = [:]
         for app in running {
             if let bundle = app.bundleIdentifier, let url = app.executableURL { executables[bundle] = url }
         }
         var byFrame: [String: Bar] = [:]
+        let displays = NSScreen.screens.compactMap { screen -> CGRect? in
+            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+            return CGDisplayBounds(number.uint32Value)
+        }
         for window in children(AXUIElementCreateApplication(agent.processIdentifier), kAXWindowsAttribute as String) {
-            guard let frame = rect(window) else { continue }
+            guard let frame = rect(window), isMenuBar(frame, on: displays) else { continue }
             var items: [Item] = []
             for group in children(window) {
                 guard let frame = rect(group) else { continue }
@@ -79,6 +87,15 @@ struct NativeMenuBarSnapshot {
             }
         }
         return NativeMenuBarSnapshot(bars: Array(byFrame.values), executables: executables)
+    }
+
+    /// MenuBarAgent also publishes popups and can retain disconnected display
+    /// windows. Neither is a screen whose marker boundary should be planned.
+    static func isMenuBar(_ frame: CGRect, on displays: [CGRect]) -> Bool {
+        frame.height >= 18 && frame.height <= 60 && displays.contains { display in
+            abs(frame.minX - display.minX) <= 1 && abs(frame.minY - display.minY) <= 1 &&
+                abs(frame.width - display.width) <= 1
+        }
     }
 
     static func resolveControls(_ captured: [Bar], markerHidden: Bool) throws -> [Bar] {
