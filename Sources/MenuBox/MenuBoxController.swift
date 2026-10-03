@@ -712,11 +712,18 @@ final class MenuBoxController: NSObject {
             replicaRecovery.resetObservation()
             return
         }
-        guard replicaRecovery.shouldRepair(bars: raw.bars,
+        guard let repair = replicaRecovery.repair(bars: raw.bars,
                   markerHidden: markerPresentation?.isHidden == true,
                   now: ProcessInfo.processInfo.systemUptime) else { return }
+        if repair == .refreshIdentifiers {
+            statusItem?.button?.setAccessibilityIdentifier("MenuBox.main")
+            tapeItem?.button?.setAccessibilityIdentifier("MenuBox.marker")
+            nativeHiding.recordMenuInteraction("refresh missing MenuBox control identifiers")
+            nativeHiding.environmentChanged(reason: "status item identifiers refreshed")
+            return
+        }
         let markerHidden = markerPresentation?.isHidden == true
-        nativeHiding.recordMenuInteraction("repair missing MenuBox display replicas")
+        nativeHiding.recordMenuInteraction("repair unresolved MenuBox display replicas")
         // Re-register only our own items, retaining their autosave names and
         // current collapsed state. Do not restart the system menu bar agent or
         // reveal any of the user's hidden applications.

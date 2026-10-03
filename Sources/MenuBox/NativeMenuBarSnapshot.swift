@@ -102,6 +102,7 @@ struct NativeMenuBarSnapshot {
     }
 
     static func resolveControls(_ captured: [Bar], markerHidden: Bool) throws -> [Bar] {
+        let reference = try controlOrder(in: captured, markerHidden: markerHidden)
         var bars = captured.sorted { $0.frame.minX < $1.frame.minX }
         if markerHidden {
             for index in bars.indices {
@@ -115,25 +116,16 @@ struct NativeMenuBarSnapshot {
                 }
             }
         }
-        guard !bars.isEmpty,
-              let known = bars.first(where: { bar in
-                  (markerHidden ? ["MenuBox.main"] : ["MenuBox.main", "MenuBox.marker"]).allSatisfy { id in
-                      bar.items.filter { $0.bundle == NativeMenuBarPreferences.ownBundle && $0.identifier == id }.count == 1
-                  }
-              }) else { throw Failure.incomplete }
-
         for index in bars.indices {
             let own = bars[index].items.indices.filter { bars[index].items[$0].bundle == NativeMenuBarPreferences.ownBundle }
             guard own.count == (markerHidden ? 1 : 2) else { throw Failure.incomplete }
             // Replica AX buttons can omit identifiers. Their order within this
             // app is shared, but their distance from the display edge is not:
             // other apps and system controls can differ between displays.
-            let reference = known.items.filter { $0.bundle == NativeMenuBarPreferences.ownBundle }
-                .sorted { $0.frame.minX < $1.frame.minX }
             let ordered = own.sorted { bars[index].items[$0].frame.minX < bars[index].items[$1].frame.minX }
             for (ordinal, itemIndex) in ordered.enumerated() {
                 let item = bars[index].items[itemIndex]
-                let identity = reference[ordinal].identifier
+                let identity = reference[ordinal]
                 guard item.identifier.isEmpty || item.identifier == identity,
                       item.frame.width > 0, bars[index].frame.contains(item.frame),
                       ordinal == 0 || bars[index].items[ordered[ordinal - 1]].frame.maxX <= item.frame.minX
@@ -146,6 +138,44 @@ struct NativeMenuBarSnapshot {
             bar.items.contains { $0.id == "MenuBox.marker" && $0.frame.width <= StatusItemMarkerPresentation.collapsedHostWidth }
         }) { throw Failure.incomplete }
         return bars
+    }
+
+    /// MenuBarAgent can lose one identifier after restarting. With exactly two
+    /// own hosts, either identifier uniquely identifies the other host. Require
+    /// agreement across displays; never assume that the marker is on the left.
+    static func controlOrder(in bars: [Bar], markerHidden: Bool) throws -> [String] {
+        var reference: [String]?
+        for bar in bars {
+            let hosted = bar.items.filter { $0.bundle == NativeMenuBarPreferences.ownBundle }
+            let own = hosted.filter {
+                $0.bundle == NativeMenuBarPreferences.ownBundle &&
+                    !(markerHidden && ($0.identifier.isEmpty || $0.identifier == "MenuBox.marker") &&
+                      $0.frame.width >= 0 && $0.frame.width <= StatusItemMarkerPresentation.collapsedHostWidth)
+            }.sorted { $0.frame.minX < $1.frame.minX }
+            guard own.count == (markerHidden ? 1 : 2) else { continue }
+            var order = own.map(\.identifier)
+            // A positively identified collapsed marker also identifies the
+            // other, full-size host as the Box. A lone blank host cannot do so.
+            if markerHidden, order == [""], hosted.count == 2,
+               own[0].frame.width > StatusItemMarkerPresentation.collapsedHostWidth,
+               hosted.contains(where: { $0.identifier == "MenuBox.marker" && $0.frame.width >= 0 &&
+                   $0.frame.width <= StatusItemMarkerPresentation.collapsedHostWidth }) {
+                order = ["MenuBox.main"]
+            }
+            let identified = order.filter { !$0.isEmpty }
+            guard identified.allSatisfy({ ["MenuBox.main", "MenuBox.marker"].contains($0) }),
+                  Set(identified).count == identified.count else { throw Failure.boundary }
+            guard !identified.isEmpty else { continue }
+            if markerHidden {
+                guard order == ["MenuBox.main"] else { throw Failure.boundary }
+            } else if let missing = order.firstIndex(of: "") {
+                order[missing] = identified[0] == "MenuBox.main" ? "MenuBox.marker" : "MenuBox.main"
+            }
+            guard reference == nil || reference == order else { throw Failure.boundary }
+            reference = order
+        }
+        guard let reference else { throw Failure.incomplete }
+        return reference
     }
 
     func plan() throws -> MenuBarSectionPlanner.Plan {

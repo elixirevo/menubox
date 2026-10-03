@@ -121,6 +121,68 @@ final class NativeMenuBarSnapshotTests: XCTestCase {
         }
     }
 
+    func testSingleKnownControlResolvesOtherControlAcrossDisplaysAfterHostRestart() throws {
+        for knownID in ["MenuBox.marker", "MenuBox.main"] {
+            var reference = bar(-200), replica = bar(0)
+            reference.items = reference.items.map { entry in
+                guard entry.bundle == own, entry.identifier != knownID else { return entry }
+                return .init(id: entry.id, bundle: own, frame: entry.frame, identifier: "")
+            }
+            replica.items = replica.items.map { entry in
+                guard entry.bundle == own else { return entry }
+                return .init(id: entry.id, bundle: own, frame: entry.frame, identifier: "")
+            }
+            let resolved = try NativeMenuBarSnapshot.resolveControls([reference, replica], markerHidden: false)
+            for display in resolved {
+                XCTAssertEqual(display.items.filter { $0.bundle == own }.map(\.id), ["MenuBox.marker", "MenuBox.main"])
+            }
+            XCTAssertEqual(try NativeMenuBarSnapshot(bars: resolved, executables: [:]).plan().applicationKeys, ["one", "two"])
+        }
+    }
+
+    func testPartialControlIdentityDoesNotAssumeMarkerIsLeft() throws {
+        var reference = bar(0)
+        reference.items[2] = .init(id: "unknown", bundle: own, frame: reference.items[2].frame, identifier: "")
+        reference.items[3] = item("MenuBox.marker", own, 100)
+        let resolved = try NativeMenuBarSnapshot.resolveControls([reference], markerHidden: false)
+        XCTAssertEqual(resolved[0].items.filter { $0.bundle == own }.map(\.id), ["MenuBox.main", "MenuBox.marker"])
+    }
+
+    func testMissingAllIdentifiersAndContradictoryPartialIdentitiesRemainUnresolved() {
+        var unknown = bar(0)
+        unknown.items = unknown.items.map { entry in
+            guard entry.bundle == own else { return entry }
+            return .init(id: entry.id, bundle: own, frame: entry.frame, identifier: "")
+        }
+        XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([unknown], markerHidden: false))
+        var partial = unknown
+        partial.items[2] = item("MenuBox.marker", own, 70)
+        var conflict = unknown
+        conflict.items[2] = item("MenuBox.main", own, 70)
+        XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([partial, conflict], markerHidden: false))
+        var duplicate = partial
+        duplicate.items[3] = item("MenuBox.marker", own, 100)
+        XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([duplicate], markerHidden: false))
+        partial.items[3] = .init(id: "overlap", bundle: own,
+            frame: CGRect(x: 75, y: 0, width: 20, height: 24), identifier: "")
+        XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([partial], markerHidden: false))
+        var hidden = hiddenBar(bar(0))
+        hidden.items[0] = .init(id: "unknown", bundle: own, frame: hidden.items[0].frame, identifier: "")
+        XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([hidden], markerHidden: true),
+            "A blank remaining host must not be assumed to be the Box")
+    }
+
+    func testIdentifiedCollapsedMarkerResolvesBlankBoxButNotMissingBox() throws {
+        var captured = bar(0)
+        captured.items[2] = .init(id: "marker", bundle: own,
+            frame: CGRect(x: 70, y: 0, width: 16, height: 24), identifier: "MenuBox.marker")
+        captured.items[3] = .init(id: "box", bundle: own, frame: captured.items[3].frame, identifier: "")
+        let resolved = try NativeMenuBarSnapshot.resolveControls([captured], markerHidden: true)
+        XCTAssertEqual(resolved[0].items.filter { $0.bundle == own }.map(\.id), ["MenuBox.main"])
+        captured.items.remove(at: 3)
+        XCTAssertThrowsError(try NativeMenuBarSnapshot.resolveControls([captured], markerHidden: true))
+    }
+
     func testHiddenReplicaResolvesBoxWithoutMatchingTrailingOffset() throws {
         var reference = hiddenBar(bar(-200)), replica = hiddenBar(bar(0))
         reference.items[0] = item("MenuBox.main", own, -100)

@@ -87,3 +87,13 @@ swift tools/menu-bar-snapshot.swift > /tmp/menubox-snapshot.json
 ```
 
 The invoking tool needs Accessibility permission. The script reads menu bar hosting frames and identifiers and stops at other apps' AXApplication proxies. It does not traverse document or window content. Its `insideBar` field means rectangle containment only; duplicate bar windows and overflow placeholders are retained as raw observations.
+
+## MenuBarAgent restart recovery (2026-10-03)
+
+Local 1.4.2 diagnostics captured two MenuBox hosts on each of three connected displays, but no `MenuBox.main` AX identifier. One display still exposed `MenuBox.marker`. The old resolver required both identifiers on one display and failed with `incomplete`; count-only replica recovery never ran. SystemUIServer and MenuBarAgent had started again while MenuBox remained running. This supports a host-restart trigger, but the exact moment of identifier loss was not captured.
+
+The resolver now accepts either known control in an expanded pair of exactly two own hosts and derives the other identity. All identified displays must agree on ordering, and the usual count, containment, overlap, duplicate identity and boundary checks still apply. While hidden, a positively identified collapsed marker can establish the other full-size host as the Box; a lone unidentified host cannot. No fixed left/right order or other application's identity is assumed.
+
+Persistent missing Box identities now enter replica recovery even when host counts are correct. After two matching observations, the controller refreshes its existing buttons' AX identifiers in place. Only if the failure persists through the 30-second repair cooldown does it re-register its own status items. Missing hosts retain the existing debounced re-registration path. Healthy samples, interrupted observations, marker-state changes and changed issue types restart observation; the cooldown survives resets. Existing sleep, verification, menu-interaction and Command-drag guards remain in effect.
+
+Regression tests cover partial identities, hidden marker evidence, fully missing identities, contradictory replicas, duplicate identities, overlaps, in-place refresh, escalation and cooldown. Replaying both local snapshots resolves controls on all three displays. A snapshot with inconsistent Passwords placement remains rejected by the boundary planner; the subsequent consistent snapshot produces a hiding plan. This replay does not establish that live AppKit identifier refresh alone succeeds after every host restart.
