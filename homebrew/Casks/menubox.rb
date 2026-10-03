@@ -1,9 +1,9 @@
 cask "menubox" do
   arch arm: "arm64", intel: "x86_64"
 
-  version "1.4.2"
-  sha256 arm:   "2266fa83b8a3aad47387fce1c14eefc4650c3012e7cb3342b172e63ab94cb894",
-         intel: "c7013679eff7563f57dddedb4a28ad1a814583b7115d2c1cd0f78ddc5cac5daa"
+  version "1.4.3"
+  sha256 arm:   "af46c7e3d7b1f313dc3572eafbaed7f360bbdc7940ec59615b4375b4a20569c9",
+         intel: "db7565b01788003b7a747f0a08a15d82958e54d1f9b530e28ebb8be597b29ad6"
 
   url "https://github.com/elixirevo/menubox/releases/download/v#{version}/MenuBox-#{version}-#{arch}.dmg"
   name "MenuBox"
