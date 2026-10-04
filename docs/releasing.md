@@ -117,9 +117,9 @@ archive alone does not include this local path dependency. Retain copyright and
 license notices, and document how to build and run a modified copy using one's own
 local signing identity. Do not publish signing keys or management credentials.
 
-The current MacAppEssentials checkout has no explicit license notice. Resolve its
-redistribution grant before publishing a combined GPL binary. Sentry and Sparkle
-upstream license texts (including Sparkle's external notices) are retained in
+MacAppEssentials project-owned code is GPL-3.0-only; include its LICENSE and
+LICENSING.md with the exact package source. Sentry and Sparkle upstream license
+texts (including Sparkle's external notices) are retained in
 THIRD_PARTY_NOTICES.txt; this is not a blanket license grant for other components.
 A successful local build or signature check is not a completed release/source
 compliance check. This licensing change does not publish a release.
@@ -128,3 +128,27 @@ The terms 1.0 draft was prepared locally and revised to 1.1 for this licensing
 change before publication. Prior public MIT versions retain their existing grants.
 A third-party app should use its own branding and identifiers, update feed and
 crash-reporting project, while preserving required copyright/license notices.
+
+## Shared pipeline for 1.5.0 and later
+
+The app's `deploy.json` connects `../tools/deploy` and adds the corresponding-source
+archive to the release assets. Use this workflow for the complete public release:
+
+```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+export SIGN_IDENTITY='Developer ID Application: Songwoo Yi (74DXCK2J5Q)'
+export NOTARY_PROFILE=menubox
+export SPARKLE_KEY_ACCOUNT=menubox
+python3 ../tools/deploy/release.py . prepare
+python3 ../tools/deploy/release.py . publish
+```
+
+Commit both the app and MacAppEssentials sources before preparation. When updating
+the app version, update the source archive filename in `deploy.json` as well.
+`scripts/prepare_release_assets.py` archives exactly those commits, including the
+local library layout and build instructions, and creates the legacy appcast.
+Never include developer profiles, signing credentials, caches or debug symbols in
+the public source archive. The shared pipeline writes assets and symbol archives
+to `dist/deploy/<version>/`; after validation, copy the signed ARM app to
+`dist/MenuBox.app` for the standard local artifact path. Keep the uploaded dSYMs
+with the release artifacts.

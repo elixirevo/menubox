@@ -5,11 +5,11 @@ These notices do not replace third-party licenses or claim new rights over them.
 
 MacAppEssentials (local ../tools/library, including integration adapters)
 Source: https://github.com/elixirevo/mac-app-essentials
-No explicit LICENSE/COPYING file or license declaration was found in the
-checked-out package during this change. This repository's GPL grant does not
-relicense that separate package. Its redistribution permission and exact source
-must be resolved before publishing a combined binary; no license is inferred
-merely from a public repository or common ownership.
+Copyright (C) 2026 elixirevo
+Project-owned package code: GNU General Public License, version 3 only
+(SPDX: GPL-3.0-only). The full license text is included in LICENSE.
+See the package's LICENSE and LICENSING.md in the release source archive.
+External SDK dependencies retain their own licenses as listed below.
 
 Sparkle 2.10.0
 Source: https://github.com/sparkle-project/Sparkle

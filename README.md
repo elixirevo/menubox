@@ -72,7 +72,7 @@ brew install --cask menubox
    ```bash
    mkdir -p ../tools
    git clone https://github.com/elixirevo/mac-app-essentials.git ../tools/library
-   git -C ../tools/library checkout a5771978e8f196aa8f1712a96d076c1c9dc0e371
+   git -C ../tools/library checkout 6a8cb7ebe76d39090b436a55fc4b2d96a11ca221
    ```
 
 3. Build the Swift executable:

@@ -1,0 +1,9 @@
+{
+  "extra_feed_command": [
+    "python3", "scripts/prepare_release_assets.py",
+    "--version", "{version}", "--build", "{arm_build}",
+    "--repository", "{repository}", "--tag", "{tag}",
+    "--output", "{output}"
+  ],
+  "extra_assets": ["appcast.xml", "MenuBox-1.5.0-source.tar.gz"]
+}
