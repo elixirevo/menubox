@@ -589,6 +589,10 @@ final class MenuBoxController: NSObject {
         let update = NSMenuItem(title: menuBoxLocalized("Check for Updates..."), action: #selector(checkForUpdatesMenuAction), keyEquivalent: "")
         update.identifier = NSUserInterfaceItemIdentifier("updates")
         menu.addItem(update)
+        let automaticUpdates = NSMenuItem(title: menuBoxLocalized("Automatically Check for Updates"),
+            action: #selector(toggleAutomaticUpdatesMenuAction), keyEquivalent: "")
+        automaticUpdates.identifier = NSUserInterfaceItemIdentifier("automaticUpdates")
+        menu.addItem(automaticUpdates)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: menuBoxLocalized("Quit MenuBox"), action: #selector(quitMenuAction), keyEquivalent: "q"))
         for item in menu.items where !item.isSeparatorItem { item.target = self }
@@ -599,7 +603,12 @@ final class MenuBoxController: NSObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.updates.refreshAvailability()
+            self.updates.refreshAutomaticChecks()
             self.contextMenu.items.first { $0.identifier?.rawValue == "updates" }?.isEnabled = self.updates.canCheckForUpdates
+            if let automaticUpdates = self.contextMenu.items.first(where: { $0.identifier?.rawValue == "automaticUpdates" }) {
+                automaticUpdates.isEnabled = self.updates.canChangeAutomaticChecks
+                automaticUpdates.state = self.updates.automaticChecksEnabled == true ? .on : .off
+            }
             self.contextMenu.popUp(positioning: nil, at: self.contextMenuAnchorPoint(for: button), in: button)
         }
     }
@@ -645,6 +654,15 @@ final class MenuBoxController: NSObject {
 
     @objc private func checkForUpdatesMenuAction() {
         Task { @MainActor in await updates.checkForUpdates() }
+    }
+
+    @objc private func toggleAutomaticUpdatesMenuAction() {
+        Task { @MainActor in
+            // Apply after menu tracking; the model rechecks updater availability
+            // and reads back the stored value if Sparkle rejects the change.
+            updates.toggleAutomaticChecks()
+            if updates.automaticChecksError != nil { openSettings(tab: .updates) }
+        }
     }
 
     @objc private func quitMenuAction() {

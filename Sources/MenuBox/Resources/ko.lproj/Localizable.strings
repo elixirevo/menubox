@@ -25,6 +25,7 @@
 "Box UI" = "Box UI";
 "Full Disk Access" = "전체 디스크 접근 권한";
 "Check for Updates..." = "업데이트 확인…";
+"Automatically Check for Updates" = "자동으로 업데이트 확인";
 "Quit MenuBox" = "MenuBox 종료";
 "Settings are unavailable." = "설정을 사용할 수 없습니다.";
 "Use Enable shortcuts in General to disable shortcuts." = "단축키를 끄려면 일반에서 단축키 사용을 해제하세요.";
