@@ -130,6 +130,57 @@ final class NativeMenuBarHidingTests: XCTestCase {
         XCTAssertTrue(hiding.canRepairStatusItems)
     }
 
+    func testMissingReplicasCanRepairDuringContinuouslyQueuedHiddenChecks() async throws {
+        let bar = MenuBar(), hiding = bar.controller()
+        defer { hiding.stop() }
+        hiding.hide()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        let restores = bar.restores, reveals = bar.markerReveals, writes = bar.writes
+        let checks = bar.checks
+        bar.unavailableCaptures = 10_000
+        hiding.environmentChanged(reason: "display replica disappeared")
+        try await eventually { bar.checks > checks }
+        // Periodic inventory/focus events continuously queue another check.
+        // There need not be an idle transition between reconciliation loops.
+        for _ in 0..<12 {
+            hiding.environmentChanged(reason: "status item inventory")
+            XCTAssertTrue(hiding.canRepairStatusItems)
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        XCTAssertTrue(hiding.isTransitioning)
+        XCTAssertTrue(hiding.isHidden)
+        XCTAssertTrue(hiding.wantsHidden)
+        // Model re-registering only the local hosts, then let verification finish.
+        bar.unavailableCaptures = 0
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        XCTAssertEqual(bar.restores, restores)
+        XCTAssertEqual(bar.markerReveals, reveals)
+        XCTAssertEqual(bar.writes, writes)
+        XCTAssertEqual(hiding.hiddenApplications, ["left"])
+        XCTAssertTrue(bar.errors.isEmpty)
+    }
+
+    func testPendingReplicaRepairStillWaitsForMenuLeaseAndSleep() async throws {
+        let bar = MenuBar(), hiding = bar.controller()
+        defer { hiding.stop() }
+        hiding.hide()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        let checks = bar.checks
+        bar.unavailableCaptures = 10_000
+        hiding.environmentChanged()
+        try await eventually { bar.checks > checks }
+        XCTAssertTrue(hiding.canRepairStatusItems)
+        let lease = try hiding.beginTemporaryReveal("left")
+        XCTAssertFalse(hiding.canRepairStatusItems)
+        hiding.endTemporaryReveal(lease)
+        hiding.suspend()
+        XCTAssertFalse(hiding.canRepairStatusItems)
+        bar.unavailableCaptures = 0
+        hiding.resume()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        XCTAssertTrue(hiding.canRepairStatusItems)
+    }
+
     func testMarkerLayoutIsSubmittedAfterWriteWithoutWaitingForHostVerification() async throws {
         let bar = MenuBar(), hiding = bar.controller(verification: 80_000_000)
         defer { hiding.stop() }

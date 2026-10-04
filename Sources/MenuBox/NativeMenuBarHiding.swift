@@ -37,8 +37,15 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     private(set) var isHidden = false
     private(set) var isTransitioning = false
     private var isSuspended = false
+    private var awaitingStatusItemRepair = false
     var canRepairStatusItems: Bool {
-        !isSuspended && temporaryReveal == nil && (!isTransitioning || baseline == nil)
+        // A missing local host makes capture/verification incomplete. Periodic
+        // checks can keep reconciliation transitioning forever, so waiting for
+        // an idle transition would also prevent the repair it needs to finish.
+        // Keep the initial apply/verification protected until an incomplete read
+        // confirms this condition. The caller still debounces raw host samples.
+        !isSuspended && temporaryReveal == nil &&
+            (!isTransitioning || baseline == nil || awaitingStatusItemRepair)
     }
     private var generation = UUID()
     private var operation: Task<Void, Never>?
@@ -141,6 +148,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                     guard self.generation == current else { return }
                     self.setMarkerHidden?(true)
                     let actual = try self.backend.capture(true)
+                    self.awaitingStatusItemRepair = false
                     switch try actual.hiddenState(plan.applicationKeys, comparedTo: baseline,
                                                   systemItems: plan.systemItemIDs) {
                     case .hidden:
@@ -211,6 +219,9 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                     }
                 } catch {
                     guard self.generation == current else { return }
+                    if case NativeMenuBarSnapshot.Failure.incomplete = error {
+                        self.awaitingStatusItemRepair = true
+                    }
                     self.trace("hidden check deferred (attempt \(attempt + 1)): " + String(describing: error))
                     changedLayout = nil
                     targetsStillVisible = false
@@ -349,6 +360,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         operation?.cancel()
         operation = nil
         temporaryReveal = nil
+        awaitingStatusItemRepair = false
         if !preservingIntent { wantsHidden = false }
         isTransitioning = false
         setMarkerHidden?(false)

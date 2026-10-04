@@ -123,6 +123,28 @@ final class StatusItemReplicaRecoveryTests: XCTestCase {
         return result
     }
 
+    func testHiddenThreeDisplayLayoutRepairsOnlyPersistentlyMissingHosts() {
+        // Live failure: collapsed marker + Box on the laptop and far display,
+        // neither host on the middle display, blank replica AX identifiers.
+        let laptop = unidentifiedHiddenBar(0)
+        let middle = bar(widths: [], x: -200)
+        let far = unidentifiedHiddenBar(-400)
+        var recovery = StatusItemReplicaRecovery()
+        XCTAssertNil(recovery.repair(bars: [laptop, middle, far], markerHidden: true, now: 0))
+        XCTAssertEqual(recovery.repair(bars: [laptop, middle, far], markerHidden: true, now: 5), .reregisterItems)
+        // Once replicas return, missing identifiers take the less disruptive
+        // refresh path first; never repeatedly recreate a healthy item pair.
+        let repaired = [laptop, unidentifiedHiddenBar(-200), far]
+        XCTAssertNil(recovery.repair(bars: repaired, markerHidden: true, now: 10))
+        XCTAssertEqual(recovery.repair(bars: repaired, markerHidden: true, now: 35), .refreshIdentifiers)
+    }
+
+    private func unidentifiedHiddenBar(_ x: CGFloat) -> NativeMenuBarSnapshot.Bar {
+        var result = bar(widths: [16, 38], x: x)
+        result.items = result.items.map { .init(id: $0.id, bundle: $0.bundle, frame: $0.frame, identifier: "") }
+        return result
+    }
+
     func testCollapsedMarkerAloneDoesNotCountAsBox() {
         var recovery = StatusItemReplicaRecovery()
         XCTAssertNil(recovery.repair(bars: [bar(widths: [16])], markerHidden: true, now: 0))

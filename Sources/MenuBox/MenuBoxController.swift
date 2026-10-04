@@ -723,7 +723,10 @@ final class MenuBoxController: NSObject {
             return
         }
         let markerHidden = markerPresentation?.isHidden == true
-        nativeHiding.recordMenuInteraction("repair unresolved MenuBox display replicas")
+        let hostsByDisplay = raw.bars.sorted { $0.frame.minX < $1.frame.minX }.map { bar in
+            "\(bar.id)=\(bar.items.filter { $0.bundle == NativeMenuBarPreferences.ownBundle }.count)"
+        }.joined(separator: "; ")
+        nativeHiding.recordMenuInteraction("repair unresolved MenuBox display replicas; markerHidden=\(markerHidden); hosts: " + hostsByDisplay)
         // Re-register only our own items, retaining their autosave names and
         // current collapsed state. Do not restart the system menu bar agent or
         // reveal any of the user's hidden applications.
