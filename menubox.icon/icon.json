@@ -4,6 +4,7 @@
     {
       "layers" : [
         {
+          "blend-mode" : "normal",
           "fill" : "none",
           "glass" : false,
           "hidden" : false,
