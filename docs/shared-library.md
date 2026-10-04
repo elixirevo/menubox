@@ -78,7 +78,7 @@ app language from Bundle.module without a web request. Reading/saving does not
 record acceptance, gate app features, or change Sentry consent. The operator confirmed there are no public document URLs. The shared support
 page accepts app-owned sections through the backward-compatible `supportContent`
 slot; MenuBox supplies its offline terms button there. `SupportLegalLinks` remains
-the API for finalized HTTPS documents when available. No privacy document or URL
+the API for finalized HTTPS documents when available. The app also bundles its own localized privacy policy; no public document URL
 is fabricated. Legacy terms destinations redirect to `SupportLegalLinks.settingsPageID`.
 
 The document is version 1.1, effective 2026-10-04 (revised before publishing the new terms). The operator supplied the name
@@ -316,3 +316,10 @@ onboarding/settings smokes. This historical result predates the new gate.
   bundled terms/legal resources, SDK/minimum OS and matching dSYM checks passed.
   Screenshots are diagnostic artifacts in `artifacts/terms-consent-qa/`.
   No public release was created.
+
+## Offline privacy policy (2026-10-05)
+
+Policy 1.0 is available in Korean and English from the existing legal-documents
+section in Help & Support. The read/save sheet records no acceptance and changes
+no reporting preference. Bundle creation verifies both policy translations.
+See [data-flow evidence and publication review](privacy.md).

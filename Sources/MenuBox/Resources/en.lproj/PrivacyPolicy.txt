@@ -1,0 +1,82 @@
+MenuBox Privacy Policy
+
+Policy version: 1.0
+Effective date: 2026-10-05
+
+1. Operator and scope
+
+MenuBox is a free macOS menu bar utility provided by elixirevo, an individual operator in the Republic of Korea. The operator also handles privacy matters, inquiries and rights requests at elixirevo@gmail.com. The App provides no app accounts, payments, advertising or cloud file storage service.
+
+This Policy covers processing by MenuBox and support inquiries received by the operator. Read or save it offline in Settings → Help & Support → Privacy Policy. Documents and earlier changes are retained in the project's source Resources. External services also have policies for their independent processing.
+
+2. On-device processing
+
+To hide or show icons, display Box UI and operate menus, the App processes running app names, identifiers and icons, menu bar positions and accessibility information, and items and titles in menus you open, on your Mac. These may contain information displayed by other apps. Display data is refreshed in memory while running and released on exit. MenuBox does not attach your menu bar app inventory or menu contents to reports.
+
+On macOS 27, the App reads and modifies protected menu bar settings to change and restore icon visibility. Original and changed values needed for recovery are temporarily stored in ~/Library/Application Support/MenuBox/Visibility. Recovery records are deleted after successful restoration; failed restoration can leave them for a retry. Deleting them before restoration can affect recovery.
+
+Language, shortcuts, display preferences, onboarding completion and crash-reporting choices are saved in local UserDefaults under com.elixirevo.MenuBox. Terms receipts contain document ID, version, displayed language, time and full-text SHA-256 and stay on-device. This hash identifies the document, not the user. These records maintain preferences and avoid repeated requests for the same terms version, and remain until you delete the local records. Restore Defaults does not clear terms acceptance or crash-reporting choices.
+
+Separately enabled developer diagnostic options can write menu bar layout and access-status files in ~/Library/Application Support/MenuBox/Diagnostics. Normal operation does not automatically create or transmit these files. Diagnostic or document files you save remain at your chosen location until you delete them.
+
+3. Permissions and local data controls
+
+Accessibility (called Device Control and Data Access on some macOS versions) locates menu bar items and operates other apps' menus. Full Disk Access on macOS 27 reads and changes protected menu bar settings. Full Disk Access is a broad permission that can also allow access to other apps' data. Revoke permissions in macOS System Settings; dependent functions may be limited. A device permission is not consent to external transmission.
+
+The operator cannot remotely read or erase data on your Mac. Before removing local records, quit normally to restore icon visibility, then manage MenuBox preferences, caches, Application Support data and files you saved. Email us for specific deletion assistance. Removing the app bundle alone may leave preferences; backups and synchronized copies must be managed with their respective tools.
+
+4. Optional crash reporting
+
+Crash reporting is off by default. Choose it in Settings → General → Diagnostics; changes take effect after quitting and relaunching. Disabling it while enabled can leave reporting active until you quit, so quit the App to stop the current session immediately. Terms acceptance or reading this Policy does not replace this separate choice.
+
+When enabled, fatal exception, stack and executable-image details, app version, build and environment, technical macOS/device information, event time and identifiers may be sent to Sentry to diagnose crashes and improve stability. Default personal-information transmission, memory introspection, automatic session/performance/network tracking, breadcrumbs and general logs are disabled. Before sending, user/request/extra/tags/breadcrumbs/message/serverName fields are removed. Filtering does not guarantee anonymity: technical paths or exception content may contain personal information. Receiving servers can process IP addresses and other connection data.
+
+Pending reports may remain in Sentry's on-device cache. Its maximum configured item count is 20, not a time-based deletion period. Disabling reporting does not immediately erase pending records. Re-enabling it can transmit crashes saved during an earlier enabled run.
+
+Sentry event retention depends on the service plan active when the event occurs. Sentry's published standard is 90 days for paid plans and 30 days for the free Developer plan. The organization currently has a Business-feature trial. Service operational/security records and backups are separate from the event access period and follow Sentry's retention policies. Turning reporting off is not a request to erase reports already sent. Request access or deletion by email; locating a report may be limited if it cannot be associated with you.
+
+5. Updates and external links
+
+Sparkle connects to the elixirevo/menubox release feed and downloads on GitHub. Servers can process IP address, request time and URL, and a User-Agent containing App/Sparkle versions. The App does not enable update-system-profile transmission by default. Disable automatic checks in Settings → Software Update or the marker's context menu. Manual checks and downloads also generate traffic.
+
+GitHub and distribution CDNs receive requests to deliver updates/downloads and protect their services. The operator does not retain these server access logs directly. GitHub retains information as needed for service delivery, security, legal obligations and related purposes; it does not publish a fixed deletion interval for every access log.
+
+Help and issue links open in the default browser or another external app. Destination services may process cookies and connection data. MenuBox itself provides no advertising cookies, targeted advertising or user profiling, and operates no web server that separately handles browser GPC/DNT signals. Manage choices for linked sites on those sites.
+
+6. Support and public issues
+
+Support email may contain your email address, name, message and attachments that you supply. We receive it through Google Gmail to answer your support or rights request and delete it within one year after resolution. If legal retention obligations apply, only the required information and scope are retained; we explain the basis on request. We collect no paid-transaction records.
+
+Account names, messages and attachments you post to GitHub issues are public. They can remain until the author deletes them or the operator acts, and copies made by others may not be recoverable. Email deletion requests to us. Do not post secrets in public issues. Help & Support diagnostics contain app name, version, build, macOS version and distribution channel. Copying or saving does not transmit them; recipients receive them only when you submit them.
+
+7. External services and international processing
+
+Crash processing: Functional Software, Inc. (Sentry), contact through https://sentry.io/privacy/. The App uses a US-region ingestion endpoint; Sentry's US event storage region is Iowa, USA. Crash data is sent over HTTPS during enabled runs for the purposes, data and retention described in Section 4. Decline reporting or turn it off and relaunch to stop subsequent reporting functionality without limiting core menu bar functions.
+
+Distribution/public issues: GitHub, Inc., contact through https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement. Processing may occur in the US and countries where the service operates. HTTPS requests occur during update checks or when you use the site/issues, for the purposes and criteria in Sections 5 and 6. Disable automatic checks and avoid manual requests to avoid the App's update traffic; this prevents receiving updates.
+
+Email: Google LLC, contact through https://policies.google.com/privacy. Sending support email can route messages and attachments through the US and Google's operating countries. The operator does not designate country-specific storage. The purpose is support; the operator's copy follows Section 6. Google's own operational/security processing and backups follow its policy. Choosing not to use email support avoids submitting that inquiry.
+
+Independent service operations/security processing are distinct from crash and support records managed by the operator. The operator does not sell app data to advertisers or provide it for targeted advertising. This Policy is not blanket consent to collection or international transfers. Separate notices, consent or other applicable requirements must be addressed where required; Terms acceptance does not replace them.
+
+8. Deletion and safeguards
+
+Operator-managed information is deleted using the relevant service's controls when the purpose ends or the stated period expires. Service backups follow each provider's deletion cycle; immediate complete erasure is not guaranteed. The operator does not create new personal-information copies to perform deletion. Recovery files have user-only file permissions; external reports and updates use HTTPS. Local UserDefaults is not a separately encrypted vault, so protect your device account and backups too.
+
+9. Rights and complaints
+
+Request access/copies, correction, deletion, processing restriction, consent withdrawal or an appeal at elixirevo@gmail.com. We verify you or an agent's authority using the minimum necessary information and respond under applicable law. If unable to fulfill a request, we explain the reason and available next steps. Do not send unnecessary identity documents or passwords.
+
+Korean external remedies: Personal Information Dispute Mediation Committee https://www.kopico.go.kr / Personal Information Infringement Report Center https://privacy.kisa.or.kr
+
+10. U.S. residents
+
+Access, deletion, correction, portable copies and appeal rights may apply depending on state law and its application to the operator. The App does not provide personal-information sales, sharing for targeted advertising or automated decisions with significant legal effects. We do not assume all state laws or the CCPA apply identically to this operator; submit applicable requests through Section 9. We do not unlawfully discriminate for exercising rights.
+
+11. Children and young people
+
+The App is intended for adults as specified in the Terms and offers no child accounts or child-directed advertising. Contact the operator if you suspect inappropriate collection of children's information. We investigate and take necessary action, including deletion where appropriate.
+
+12. Changes
+
+Policy versions, effective dates and changes are identified in bundled documents and release notes, and earlier text is retained in source history. Additional notice or consent required for new processing is addressed before it starts. Reading or saving this document, or a policy change alone, does not trigger renewed Terms acceptance or block app use.

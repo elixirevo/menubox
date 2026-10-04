@@ -45,6 +45,7 @@ struct MenuBoxTerms {
 /// The only settings entry is Help & Support; the sheet is a read-only document viewer.
 struct MenuBoxTermsSupportSection: View {
     @State private var showsTerms = false
+    @State private var showsPrivacy = false
 
     var body: some View {
         SettingsSection(menuBoxLocalized("Legal Documents")) {
@@ -52,7 +53,12 @@ struct MenuBoxTermsSupportSection: View {
                         detail: menuBoxLocalized("Available offline. Reading or saving these terms does not record agreement.")) {
                 Button(menuBoxLocalized("Read Terms…")) { showsTerms = true }
             }
+            SettingsRow(menuBoxLocalized("Privacy Policy"),
+                        detail: menuBoxLocalized("How MenuBox handles local data, crash reports, updates and support requests.")) {
+                Button(menuBoxLocalized("Read Privacy Policy…")) { showsPrivacy = true }
+            }
         }
+        .sheet(isPresented: $showsPrivacy) { MenuBoxPrivacyPolicySheet() }
         .sheet(isPresented: $showsTerms) {
             VStack(spacing: 0) {
                 SettingsPage { MenuBoxTermsSettings() }

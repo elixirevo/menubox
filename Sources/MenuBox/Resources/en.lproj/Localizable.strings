@@ -36,7 +36,7 @@
 "Accessibility" = "Accessibility";
 "Terms of Use" = "Terms of Use";
 "Legal Documents" = "Legal Documents";
-"Read Terms…" = "Read Terms…";
+"Read Terms…" = "Read";
 "Close" = "Close";
 "Bundled document" = "Bundled document";
 "Available offline. Reading or saving these terms does not record agreement." = "Available offline. Reading or saving these terms does not record agreement.";
@@ -67,3 +67,10 @@
 "MenuBox now asks for explicit agreement to these terms before use. The app remains free under GPL-3.0-only with its existing brand policy. Crash reporting and macOS permissions are separate choices." = "MenuBox now asks for explicit agreement to these terms before use. The app remains free under GPL-3.0-only with its existing brand policy. Crash reporting and macOS permissions are separate choices.";
 "Retry loading the terms or quit MenuBox. App features have not started." = "Retry loading the terms or quit MenuBox. App features have not started.";
 "Retry" = "Retry";
+"Privacy Policy" = "Privacy Policy";
+"How MenuBox handles local data, crash reports, updates and support requests." = "How MenuBox handles local data, crash reports, updates and support requests.";
+"Read Privacy Policy…" = "Read";
+"Save Privacy Policy…" = "Save Privacy Policy…";
+"This policy explains data processing. Reading or saving it does not change your consent or privacy choices." = "This policy explains data processing. Reading or saving it does not change your consent or privacy choices.";
+"The bundled privacy policy could not be loaded." = "The bundled privacy policy could not be loaded.";
+"The privacy policy could not be saved. Please try again." = "The privacy policy could not be saved. Please try again.";

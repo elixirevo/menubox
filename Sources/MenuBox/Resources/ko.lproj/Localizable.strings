@@ -36,7 +36,7 @@
 "Accessibility" = "손쉬운 사용";
 "Terms of Use" = "이용약관";
 "Legal Documents" = "법률 문서";
-"Read Terms…" = "약관 읽기…";
+"Read Terms…" = "읽기";
 "Close" = "닫기";
 "Bundled document" = "앱에 포함된 문서";
 "Available offline. Reading or saving these terms does not record agreement." = "오프라인으로 열람할 수 있습니다. 약관을 읽거나 저장해도 동의한 것으로 기록하지 않습니다.";
@@ -67,3 +67,10 @@
 "MenuBox now asks for explicit agreement to these terms before use. The app remains free under GPL-3.0-only with its existing brand policy. Crash reporting and macOS permissions are separate choices." = "MenuBox를 사용하기 전에 이용약관에 명시적으로 동의해 주세요. 앱은 기존 브랜드 정책과 GPL-3.0-only에 따라 계속 무료로 제공됩니다. 충돌 보고와 macOS 권한은 별도로 선택합니다.";
 "Retry loading the terms or quit MenuBox. App features have not started." = "이용약관을 다시 불러오거나 MenuBox를 종료해 주세요. 앱 기능은 아직 시작되지 않았습니다.";
 "Retry" = "다시 시도";
+"Privacy Policy" = "개인정보 처리방침";
+"How MenuBox handles local data, crash reports, updates and support requests." = "로컬 자료, 충돌 보고, 업데이트 및 지원 문의의 처리 방식을 안내합니다.";
+"Read Privacy Policy…" = "읽기";
+"Save Privacy Policy…" = "개인정보 처리방침 저장…";
+"This policy explains data processing. Reading or saving it does not change your consent or privacy choices." = "이 문서는 개인정보 처리 방식을 안내합니다. 열람·저장으로 동의 기록이나 개인정보 관련 선택이 바뀌지 않습니다.";
+"The bundled privacy policy could not be loaded." = "앱에 포함된 개인정보 처리방침을 불러오지 못했습니다.";
+"The privacy policy could not be saved. Please try again." = "개인정보 처리방침을 저장하지 못했습니다. 다시 시도해 주세요.";

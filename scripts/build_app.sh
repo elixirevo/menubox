@@ -66,14 +66,16 @@ for bundle in MenuBox_MenuBox MacAppEssentials_MacAppSettings MacAppEssentials_M
   ditto "$BIN_PATH/$bundle.bundle" "$RESOURCES_DIR/$bundle.bundle"
 done
 
-# Offline terms must be present in both languages and match this app checkout.
+# Offline legal documents must match this app checkout in both languages.
 TERMS_RESOURCES="$RESOURCES_DIR/MenuBox_MenuBox.bundle"
 if [[ -d "$TERMS_RESOURCES/Contents/Resources" ]]; then
   TERMS_RESOURCES="$TERMS_RESOURCES/Contents/Resources"
 fi
 for language in en ko; do
-  cmp "$ROOT_DIR/Sources/MenuBox/Resources/$language.lproj/TermsOfUse.txt" \
-      "$TERMS_RESOURCES/$language.lproj/TermsOfUse.txt"
+  for document in TermsOfUse PrivacyPolicy; do
+    cmp "$ROOT_DIR/Sources/MenuBox/Resources/$language.lproj/$document.txt" \
+        "$TERMS_RESOURCES/$language.lproj/$document.txt"
+  done
 done
 
 # Ship the unchanged GPL and project/third-party notices with every app bundle.

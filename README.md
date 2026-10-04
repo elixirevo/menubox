@@ -172,6 +172,14 @@ app language and does not record agreement when read or saved. Sources:
 [Korean](Sources/MenuBox/Resources/ko.lproj/TermsOfUse.txt) and
 [English](Sources/MenuBox/Resources/en.lproj/TermsOfUse.txt).
 
+Settings → Help & Support → Read Privacy Policy explains on-device records,
+optional Sentry reporting, updates, email support and your data choices. The full
+Korean/English document is bundled for offline reading and saving; viewing it
+does not change consent or require renewed terms acceptance. Support email is
+deleted within one year after resolution. Sources:
+[Korean](Sources/MenuBox/Resources/ko.lproj/PrivacyPolicy.txt) and
+[English](Sources/MenuBox/Resources/en.lproj/PrivacyPolicy.txt).
+
 ## 🔒 Permissions
 
 MenuBox requires:
