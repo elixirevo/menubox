@@ -1,0 +1,8 @@
+{
+  "appIdentifier": "com.elixirevo.MenuBox",
+  "dsn": "https://44ce04c4959534673bd19cc50e109621@o4512192516390912.ingest.us.sentry.io/4512196514152448",
+  "environment": "production",
+  "organization": "elixirevo",
+  "project": "menubox",
+  "schemaVersion": 1
+}

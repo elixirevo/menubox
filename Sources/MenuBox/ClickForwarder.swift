@@ -285,7 +285,11 @@ enum ClickForwarder {
         openSystemSettings(path: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
     }
 
-    static func openFullDiskAccessSettings() {
+    static func openFullDiskAccessSettings(registerIfNeeded: Bool = true) {
+        if !registerIfNeeded {
+            openSystemSettings(path: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async {
             FullDiskAccessRequest.perform(access: FullDiskAccessProbe.read()) {
                 DispatchQueue.main.async {

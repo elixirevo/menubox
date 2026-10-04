@@ -1,4 +1,7 @@
 import AppKit
+import MacAppSettings
+import MacAppCore
+import MacAppMainMenu
 import ApplicationServices
 import Carbon
 import Combine
@@ -68,7 +71,9 @@ private func menuBoxHotKeyHandler(
 }
 
 final class MenuBoxController: NSObject {
-    private let checkForUpdates: (() -> Void)?
+    private let updates: UpdateSettingsModel
+    private let crashPreference: CrashReportingPreference?
+    private var mainMenu: MainMenuController?
     private let store = SettingsStore()
     private let permissions = PermissionStore()
     private var hideWhenPermissionsReady = false
@@ -129,8 +134,10 @@ final class MenuBoxController: NSObject {
     private var cachedProxyTargetsLoadedAt: Date?
     private var isStopping = false
 
-    init(checkForUpdates: (() -> Void)? = nil) {
-        self.checkForUpdates = checkForUpdates
+    @MainActor
+    init(updates: UpdateSettingsModel, crashPreference: CrashReportingPreference? = nil) {
+        self.updates = updates
+        self.crashPreference = crashPreference
         super.init()
     }
 
@@ -143,6 +150,7 @@ final class MenuBoxController: NSObject {
         uninstallKeyboardShortcuts()
     }
 
+    @MainActor
     func start() {
         NSLog("[MenuBox] Accessibility trusted=%d", ClickForwarder.accessibilityTrusted)
         boxWindowController.onForwardedClick = { [weak self] click, button in
@@ -158,6 +166,19 @@ final class MenuBoxController: NSObject {
             }
         }
 
+        do {
+            mainMenu = try MainMenuController(configuration: .init(
+                appName: "MenuBox",
+                settings: { [weak self] in self?.openSettings() },
+                about: { [weak self] in self?.openSettings(tab: .about) },
+                sidebar: .sidebar(
+                    isVisible: { [weak self] in self?.settingsWindowController?.navigation.isSidebarVisible ?? true },
+                    isEnabled: { [weak self] in self?.settingsWindowController?.host.window?.isVisible == true },
+                    toggle: { [weak self] in self?.settingsWindowController?.navigation.toggleSidebar() }
+                )
+            ))
+            mainMenu?.install()
+        } catch { NSLog("[MenuBox] Main menu unavailable: %@", error.localizedDescription) }
         configureMainStatusItem()
         configureTapeStatusItem()
         installKeyboardShortcuts()
@@ -558,20 +579,26 @@ final class MenuBoxController: NSObject {
         return flags
     }
 
-    private func showContextMenu(from button: NSStatusBarButton) {
+    private lazy var contextMenu: NSMenu = {
         let menu = NSMenu()
-        menu.addItem(NSMenuItem(title: "Open Settings", action: #selector(openSettingsMenuAction), keyEquivalent: ","))
-        if checkForUpdates != nil {
-            menu.addItem(NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdatesMenuAction), keyEquivalent: ""))
-        }
+        menu.autoenablesItems = false
+        menu.addItem(NSMenuItem(title: menuBoxLocalized("Open Settings"), action: #selector(openSettingsMenuAction), keyEquivalent: ","))
+        let update = NSMenuItem(title: menuBoxLocalized("Check for Updates..."), action: #selector(checkForUpdatesMenuAction), keyEquivalent: "")
+        update.identifier = NSUserInterfaceItemIdentifier("updates")
+        menu.addItem(update)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit MenuBox", action: #selector(quitMenuAction), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: menuBoxLocalized("Quit MenuBox"), action: #selector(quitMenuAction), keyEquivalent: "q"))
+        for item in menu.items where !item.isSeparatorItem { item.target = self }
+        return menu
+    }()
 
-        for item in menu.items where item.target == nil {
-            item.target = self
+    private func showContextMenu(from button: NSStatusBarButton) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.updates.refreshAvailability()
+            self.contextMenu.items.first { $0.identifier?.rawValue == "updates" }?.isEnabled = self.updates.canCheckForUpdates
+            self.contextMenu.popUp(positioning: nil, at: self.contextMenuAnchorPoint(for: button), in: button)
         }
-
-        menu.popUp(positioning: nil, at: contextMenuAnchorPoint(for: button), in: button)
     }
 
     private func contextMenuAnchorPoint(for button: NSStatusBarButton) -> NSPoint {
@@ -614,34 +641,56 @@ final class MenuBoxController: NSObject {
     }
 
     @objc private func checkForUpdatesMenuAction() {
-        checkForUpdates?()
+        Task { @MainActor in await updates.checkForUpdates() }
     }
 
     @objc private func quitMenuAction() {
-        NSApplication.shared.terminate(nil)
+        DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
     }
 
-    private func openSettings(tab: SettingsTab? = nil) {
+    func openSettings(tab: SettingsTab? = nil) {
+        Task { @MainActor [weak self] in self?.presentSettings(tab: tab) }
+    }
+
+    @MainActor
+    private func presentSettings(tab: SettingsTab?) {
         if settingsWindowController == nil {
             let actions = SettingsActions(
-                refreshHiddenRange: { [weak self] in
-                    self?.hideHiddenIcons()
-                },
                 showHiddenIcons: { [weak self] in self?.showHiddenIcons() },
                 hideHiddenIcons: { [weak self] in self?.hideHiddenIcons() },
-                requestAccessibility: {
-                    ClickForwarder.requestAccessibilityAccess()
-                    ClickForwarder.openAccessibilitySettings()
-                },
-                requestFullDiskAccess: { ClickForwarder.openFullDiskAccessSettings() },
                 setShortcutRecordingActive: { [weak self] active in
                     self?.setShortcutRecordingActive(active)
                 },
-                setLaunchAtLogin: { enabled in LaunchAtLoginManager.setEnabled(enabled) }
+                writeShortcut: { [weak self] target, shortcut in
+                    guard let self else { throw MenuBoxSettingsError.unavailable }
+                    try self.writeShortcut(shortcut, target: target)
+                }
             )
-            settingsWindowController = SettingsWindowController(store: store, permissions: permissions, actions: actions)
+            settingsWindowController = SettingsWindowController(
+                store: store, permissions: permissions, updates: updates, actions: actions,
+                crashPreference: crashPreference
+            )
         }
         settingsWindowController?.show(tab: tab)
+    }
+
+    private func writeShortcut(_ shortcut: KeyboardShortcutSetting, target: MenuBoxShortcutTarget) throws {
+        // Probe Carbon before saving. Recording suspends the real registrations;
+        // a failure leaves the old stored shortcut available when recording ends.
+        unregisterKeyboardShortcuts()
+        defer { refreshKeyboardShortcuts() }
+        guard hotKeyEventHandler != nil,
+              let candidate = registerKeyboardShortcut(shortcut, id: target == .menuBarIcon
+                  ? MenuBoxHotKey.menuBarIconID : MenuBoxHotKey.boxUIID) else {
+            throw MenuBoxSettingsError.shortcutUnavailable
+        }
+        UnregisterEventHotKey(candidate)
+        store.update { settings in
+            switch target {
+            case .menuBarIcon: settings.menuBarIconShortcut = shortcut
+            case .boxUI: settings.boxUIShortcut = shortcut
+            }
+        }
     }
 
     private func showHiddenIconsBox() {

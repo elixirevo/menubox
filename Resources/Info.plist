@@ -4,6 +4,8 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
+    <key>CFBundleLocalizations</key>
+    <array><string>en</string><string>ko</string></array>
     <key>CFBundleExecutable</key>
     <string>MenuBox</string>
     <key>CFBundleIdentifier</key>

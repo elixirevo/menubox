@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "MenuBox",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v13)
     ],
@@ -11,14 +12,22 @@ let package = Package(
         .executable(name: "MenuBox", targets: ["MenuBox"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.0.0")
+        .package(name: "MacAppEssentials", path: "../tools/library"),
+        .package(path: "../tools/library/Integrations/MacAppUpdatesSparkle"),
+        .package(path: "../tools/library/Integrations/MacAppDiagnosticsSentry")
     ],
     targets: [
         .executableTarget(
             name: "MenuBox",
             dependencies: [
-                .product(name: "Sparkle", package: "Sparkle")
+                .product(name: "MacAppCore", package: "MacAppEssentials"),
+                .product(name: "MacAppSettings", package: "MacAppEssentials"),
+                .product(name: "MacAppLifecycle", package: "MacAppEssentials"),
+                .product(name: "MacAppMainMenu", package: "MacAppEssentials"),
+                .product(name: "MacAppUpdatesSparkle", package: "MacAppUpdatesSparkle"),
+                .product(name: "MacAppDiagnosticsSentry", package: "MacAppDiagnosticsSentry")
             ],
+            resources: [.process("Resources")],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
             ]

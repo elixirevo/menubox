@@ -40,3 +40,24 @@ umask 077
 ```
 
 That file contains the private key in plaintext; the destination must be protected. On another Mac, import with `generate_keys --account menubox -f /path/to/secure-backup/menubox-sparkle.key`. Use `generate_keys --account menubox -p` to verify the public key matches `sparkle-public-key.txt`. Keep a password-protected `.p12` backup of the Developer ID identity and its private key as well.
+
+
+## Sentry symbols
+
+`build_app.sh` archives `dist/symbols/MenuBox-<version>-<build>-<arch>.app.dSYM`
+and checks its UUID against the shipped executable. Keep both architectures'
+matching artifacts with each release. They remain outside the distributed app.
+Upload each archive before publishing, using the Sentry CLI and CI's secret
+`SENTRY_AUTH_TOKEN` (never put this token in the command, app or repository):
+
+```sh
+sentry-cli debug-files upload --org elixirevo --project menubox \
+  dist/symbols/MenuBox-<version>-<build>-<arch>.app.dSYM
+```
+
+The organization/project are MenuBox's app-owned deployment configuration in
+`Sources/MenuBox/Resources/SentryConfiguration.json`, not shared-library defaults.
+Project provisioning does not upload dSYMs. The local build does not contact
+Sentry or upload symbols automatically. Validate received crash release/dist,
+UUIDs and resolved frames with a separately approved development-project crash
+test; a successful build or management API call is not that validation.

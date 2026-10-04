@@ -1,460 +1,238 @@
 import AppKit
-import ServiceManagement
+import Combine
+import MacAppCore
+import MacAppSettings
 import SwiftUI
 
-final class SettingsWindowController: NSWindowController {
-    private let store: SettingsStore
-    private let navigation = SettingsNavigation()
+func menuBoxLocalized(_ key: String) -> String {
+    AppLocalizer.current.string(key, bundle: .module)
+}
 
-    init(store: SettingsStore, permissions: PermissionStore, actions: SettingsActions) {
-        self.store = store
+enum SettingsTab { case general, display, shortcuts, permissions, updates, about }
+enum MenuBoxShortcutTarget { case menuBarIcon, boxUI }
 
-        let view = SettingsView(store: store, permissions: permissions, navigation: navigation, actions: actions)
-        let hosting = NSHostingController(rootView: view)
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "MenuBox Settings"
-        window.setContentSize(NSSize(width: 660, height: 600))
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.isReleasedWhenClosed = false
-        super.init(window: window)
+struct SettingsActions {
+    var showHiddenIcons: () -> Void
+    var hideHiddenIcons: () -> Void
+    var setShortcutRecordingActive: (Bool) -> Void
+    var writeShortcut: (MenuBoxShortcutTarget, KeyboardShortcutSetting) throws -> Void
+}
+
+enum MenuBoxSettingsError: LocalizedError {
+    case unavailable, shortcutRequired, shortcutUnavailable
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: return menuBoxLocalized("Settings are unavailable.")
+        case .shortcutRequired: return menuBoxLocalized("Use Enable shortcuts in General to disable shortcuts.")
+        case .shortcutUnavailable: return menuBoxLocalized("This shortcut could not be registered. Choose another combination.")
+        }
+    }
+}
+
+extension KeyboardShortcutSetting {
+    var settingsShortcut: SettingsShortcut {
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers.contains(.command) { flags.insert(.command) }
+        if modifiers.contains(.option) { flags.insert(.option) }
+        if modifiers.contains(.control) { flags.insert(.control) }
+        if modifiers.contains(.shift) { flags.insert(.shift) }
+        return .init(keyCode: UInt16(clamping: keyCode), modifiers: flags, keyLabel: key)
     }
 
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+    init(_ shortcut: SettingsShortcut) {
+        self.init(key: shortcut.keyLabel, keyCode: UInt32(shortcut.keyCode),
+                  modifiers: .init(eventModifierFlags: shortcut.modifierFlags))
+    }
+}
+
+extension PermissionAccess {
+    var settingsStatus: SettingsPermissionStatus {
+        switch self {
+        case .available: return .granted
+        case .denied: return .notGranted
+        case .unavailable: return .unknown
+        }
+    }
+}
+
+/// Adapts existing MenuBox storage and services to the shared settings UI.
+@MainActor
+final class SettingsWindowController {
+    let navigation = MacAppSettings.SettingsNavigation()
+    let shortcuts: ShortcutSettingsModel
+    let permissionModel: PermissionSettingsModel
+    let login: LaunchAtLoginModel
+    private let store: SettingsStore
+    private let permissions: PermissionStore
+    private let updates: UpdateSettingsModel
+    private let actions: SettingsActions
+    private let language: AppLanguageSettings?
+    private let crashPreference: CrashReportingPreference?
+    private var observations = Set<AnyCancellable>()
+
+    private lazy var reset = try! SettingsResetModel(actions: [
+        .init(id: "menubox", title: "MenuBox", detail: menuBoxLocalized(
+            "Restore auto-hide, Box UI, click actions, shortcuts and saved ranges. Language, login items, updates and macOS permissions stay unchanged."
+        )) { [weak self] in
+            guard let self else { return }
+            self.shortcuts.stopRecording()
+            // Login registration is OS-owned; do not reset its legacy mirror.
+            self.store.resetToDefaults(preservingLoginItem: true)
+            self.shortcuts.refresh()
+        }
+    ])
+
+    private lazy var pages = try! SettingsPages([
+        .builtIn(.general),
+        .custom(id: "display", title: menuBoxLocalized("Display"), symbol: "menubar.rectangle", color: .orange) { [store, actions] in
+            MenuBoxDisplaySettings(store: store, actions: actions)
+        },
+        .builtIn(.shortcuts), .builtIn(.permissions), .builtIn(.updates), .builtIn(.about)
+    ])
+
+    private(set) lazy var host = MacAppSettings.SettingsWindowController(
+        title: menuBoxLocalized("MenuBox Settings"), autosaveName: "com.elixirevo.MenuBox.Settings",
+        navigation: navigation, onClose: { [weak self] in self?.shortcuts.stopRecording() }
+    ) { [self] in
+        AppSettingsView(
+            identity: SettingsIdentity(bundle: .main, icon: NSApp.applicationIconImage,
+                website: URL(string: "https://github.com/elixirevo/menubox")),
+            navigation: navigation, shortcuts: shortcuts, permissions: permissionModel,
+            updates: updates, language: language, launchAtLogin: login, pages: pages, reset: reset
+        ) {
+            MenuBoxGeneralSettings(store: store)
+            if let crashPreference { DiagnosticsSettingsSection(preference: crashPreference) }
+        }
+    }
+
+    init(store: SettingsStore, permissions: PermissionStore, updates: UpdateSettingsModel,
+         actions: SettingsActions, login: LaunchAtLoginModel? = nil,
+         permissionModel: PermissionSettingsModel? = nil, language: AppLanguageSettings? = nil,
+         crashPreference: CrashReportingPreference? = nil) {
+        self.store = store
+        self.permissions = permissions
+        self.updates = updates
+        self.actions = actions
+        self.language = language
+        self.crashPreference = crashPreference
+        self.login = login ?? LaunchAtLoginModel()
+        shortcuts = Self.makeShortcuts(store: store, actions: actions)
+        self.permissionModel = permissionModel ?? Self.makePermissions(snapshot: permissions.snapshot)
+        store.$settings.sink { [weak shortcuts] _ in
+            // @Published emits before storage changes; read on the next main turn.
+            DispatchQueue.main.async { shortcuts?.refresh() }
+        }.store(in: &observations)
+        permissions.$snapshot.removeDuplicates().sink { [weak model = self.permissionModel] _ in
+            Task { @MainActor in await model?.refresh() }
+        }.store(in: &observations)
     }
 
     func show(tab: SettingsTab? = nil) {
-        if let tab { navigation.selectedTab = tab }
-        store.refreshDisplays()
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        navigation.configure(pages)
+        shortcuts.refresh()
+        login.refresh()
+        if let tab {
+            let page: SettingsPageID
+            switch tab {
+            case .general: page = .builtIn(.general)
+            case .display: page = .custom("display")
+            case .shortcuts: page = .builtIn(.shortcuts)
+            case .permissions: page = .builtIn(.permissions)
+            case .updates: page = .builtIn(.updates)
+            case .about: page = .builtIn(.about)
+            }
+            host.show(pageID: page)
+        } else { host.show() }
+    }
+
+    static func makeShortcuts(store: SettingsStore, actions: SettingsActions) -> ShortcutSettingsModel {
+        func action(_ id: String, _ title: String, _ target: MenuBoxShortcutTarget,
+                    _ key: KeyPath<AppSettings, KeyboardShortcutSetting>) -> SettingsShortcutAction {
+            .init(id: id, title: menuBoxLocalized(title),
+                  read: { store.settings[keyPath: key].settingsShortcut },
+                  validate: { if $0 == nil { throw MenuBoxSettingsError.shortcutRequired } },
+                  write: { value in
+                      guard let value else { throw MenuBoxSettingsError.shortcutRequired }
+                      try actions.writeShortcut(target, KeyboardShortcutSetting(value))
+                  })
+        }
+        return ShortcutSettingsModel([
+            action("menuBarIcon", "Menu bar icon", .menuBarIcon, \.menuBarIconShortcut),
+            action("boxUI", "Box UI", .boxUI, \.boxUIShortcut)
+        ], recordingChanged: actions.setShortcutRecordingActive)
+    }
+
+    static func makePermissions(snapshot: PermissionSnapshot,
+                                readDiskAccess: @escaping () -> PermissionAccess = { FullDiskAccessProbe.read() },
+                                openDiskSettings: @escaping () -> Void = { ClickForwarder.openFullDiskAccessSettings() }) -> PermissionSettingsModel {
+        var items: [SettingsPermission] = [.accessibility(detail: menuBoxLocalized(
+            "Required to find menu bar icons and open their menus from Box UI. On macOS 27 this permission is called Device Control and Data Access."
+        ))]
+        if snapshot.fullDiskAccess != nil {
+            items.append(.init(id: "fullDiskAccess", title: menuBoxLocalized("Full Disk Access"),
+                detail: menuBoxLocalized("Required to hide icons on macOS 27. MenuBox accesses protected menu bar settings. This permission also allows access to other apps’ data. Add MenuBox from Applications with the + button if it is missing."),
+                readStatus: { readDiskAccess().settingsStatus },
+                request: { openDiskSettings() }, openSystemSettings: {
+                    ClickForwarder.openFullDiskAccessSettings(registerIfNeeded: false)
+                }))
+        }
+        return PermissionSettingsModel(items)
     }
 }
 
-struct SettingsActions {
-    var refreshHiddenRange: () -> Void
-    var showHiddenIcons: () -> Void
-    var hideHiddenIcons: () -> Void
-    var requestAccessibility: () -> Void
-    var requestFullDiskAccess: () -> Void
-    var setShortcutRecordingActive: (Bool) -> Void
-    var setLaunchAtLogin: (Bool) -> Void
-}
-
-enum SettingsTab: Hashable { case general, display, permissions }
-
-final class SettingsNavigation: ObservableObject {
-    @Published var selectedTab: SettingsTab = .general
-}
-
-private enum ShortcutRecordingTarget {
-    case menuBarIcon
-    case boxUI
-}
-
-struct SettingsView: View {
+private struct MenuBoxGeneralSettings: View {
     @ObservedObject var store: SettingsStore
-    @ObservedObject var permissions: PermissionStore
-    @ObservedObject var navigation: SettingsNavigation
+    private let delays: [Double] = [5, 10, 15, 20, 30, 60]
+
+    var body: some View {
+        SettingsSection(menuBoxLocalized("Auto-hide")) {
+            SettingsToggle(menuBoxLocalized("Auto-hide again"), isOn: binding(\.autoHideEnabled))
+            SettingsPicker(menuBoxLocalized("Auto-hide delay"), selection: binding(\.autoHideDelaySeconds)) {
+                ForEach(Array(Set(delays + [store.settings.autoHideDelaySeconds])).sorted(), id: \.self) { seconds in
+                    Text(String(format: menuBoxLocalized("%g seconds"), seconds)).tag(seconds)
+                }
+            }
+        }
+        SettingsSection(menuBoxLocalized("Box Icon")) {
+            SettingsToggle(menuBoxLocalized("Show Box UI"), isOn: binding(\.boxUIEnabled))
+            SettingsPicker(menuBoxLocalized("Left click"), selection: binding(\.boxIconLeftClickAction)) { clickOptions }
+            SettingsPicker(menuBoxLocalized("Right click"), selection: binding(\.boxIconRightClickAction)) { clickOptions }
+        }
+        SettingsSection(menuBoxLocalized("Shortcuts")) {
+            SettingsToggle(menuBoxLocalized("Enable shortcuts"), isOn: binding(\.shortcutsEnabled))
+        }
+    }
+
+    private var clickOptions: some View {
+        ForEach(BoxIconAction.clickActionCases) { action in Text(menuBoxLocalized(action.title)).tag(action) }
+    }
+    private func binding<Value>(_ key: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
+        Binding(get: { store.settings[keyPath: key] }, set: { value in store.update { $0[keyPath: key] = value } })
+    }
+}
+
+private struct MenuBoxDisplaySettings: View {
+    @ObservedObject var store: SettingsStore
     let actions: SettingsActions
-    @State private var shortcutRecordingTarget: ShortcutRecordingTarget?
-    @State private var shortcutMonitor: Any?
-    @State private var isShowingResetConfirmation = false
-    private let autoHideDelayOptions: [Double] = [5, 10, 15, 20, 30, 60]
-
     var body: some View {
-        TabView(selection: $navigation.selectedTab) {
-            generalTab
-                .tabItem { Label("General", systemImage: "gearshape") }
-                .tag(SettingsTab.general)
-            displayTab
-                .tabItem { Label("Display", systemImage: "menubar.rectangle") }
-                .tag(SettingsTab.display)
-            permissionTab
-                .tabItem { Label("Permissions", systemImage: "lock.shield") }
-                .tag(SettingsTab.permissions)
-        }
-        .padding(SettingsLayout.windowPadding)
-        .frame(minWidth: 560, minHeight: 460)
-        .onDisappear {
-            stopShortcutCapture()
-        }
-    }
-
-    private var generalTab: some View {
-        SettingsForm {
-            Section("General") {
-                Toggle("Launch at login", isOn: Binding(
-                    get: { store.settings.launchAtLogin },
-                    set: { enabled in
-                        store.update { $0.launchAtLogin = enabled }
-                        actions.setLaunchAtLogin(enabled)
-                    }
-                ))
-
-                Toggle("Auto-hide again", isOn: Binding(
-                    get: { store.settings.autoHideEnabled },
-                    set: { enabled in store.update { $0.autoHideEnabled = enabled } }
-                ))
-
-                Picker("Auto-hide delay", selection: Binding(
-                    get: { normalizedAutoHideDelay },
-                    set: { value in store.update { $0.autoHideDelaySeconds = value } }
-                )) {
-                    ForEach(autoHideDelayOptions, id: \.self) { seconds in
-                        Text("\(Int(seconds))s").tag(seconds)
-                    }
-                }
-            }
-
-            Section("Box Icon") {
-                Toggle("Show Box UI", isOn: Binding(
-                    get: { store.settings.boxUIEnabled },
-                    set: { enabled in store.update { $0.boxUIEnabled = enabled } }
-                ))
-
-                Picker("Left click", selection: boxIconActionBinding(
-                    \.boxIconLeftClickAction,
-                    fallback: .toggleHiddenIcons
-                )) {
-                    ForEach(BoxIconAction.clickActionCases) { action in
-                        Text(action.title).tag(action)
-                    }
-                }
-
-                Picker("Right click", selection: boxIconActionBinding(
-                    \.boxIconRightClickAction,
-                    fallback: .showBoxUI
-                )) {
-                    ForEach(BoxIconAction.clickActionCases) { action in
-                        Text(action.title).tag(action)
-                    }
-                }
-            }
-
-            Section("Shortcuts") {
-                Toggle("Enable shortcuts", isOn: Binding(
-                    get: { store.settings.shortcutsEnabled },
-                    set: { enabled in store.update { $0.shortcutsEnabled = enabled } }
-                ))
-
-                shortcutRow(
-                    "Menu bar icon",
-                    target: .menuBarIcon,
-                    shortcut: store.settings.menuBarIconShortcut
-                )
-                shortcutRow(
-                    "Box UI",
-                    target: .boxUI,
-                    shortcut: store.settings.boxUIShortcut
-                )
-            }
-
-            Section("Reset") {
-                Button("Reset to Defaults", role: .destructive) {
-                    isShowingResetConfirmation = true
-                }
+        SettingsSection(menuBoxLocalized("Box Icons")) {
+            SettingsToggle(menuBoxLocalized("Show Box UI alerts"), isOn: Binding(
+                get: { store.settings.boxStatusMessagesEnabled },
+                set: { value in store.update { $0.boxStatusMessagesEnabled = value } }
+            ))
+            SettingsRow(menuBoxLocalized("Icons per row")) {
+                Text("\(store.settings.boxMaxColumns)").monospacedDigit()
+                Stepper(menuBoxLocalized("Icons per row"), value: Binding(
+                    get: { store.settings.boxMaxColumns },
+                    set: { value in store.update { $0.boxMaxColumns = value } }
+                ), in: 1...20).labelsHidden()
             }
         }
-        .alert("Reset Settings?", isPresented: $isShowingResetConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Reset", role: .destructive) {
-                resetSettingsToDefaults()
+        SettingsSection(menuBoxLocalized("Menu Bar Icons")) {
+            SettingsRow(menuBoxLocalized("Hidden icons")) {
+                Button(menuBoxLocalized("Show hidden icons"), action: actions.showHiddenIcons)
+                Button(menuBoxLocalized("Hide again"), action: actions.hideHiddenIcons)
             }
-        } message: {
-            Text("This will restore all settings to their default values.")
-        }
-    }
-
-    private var normalizedAutoHideDelay: Double {
-        autoHideDelayOptions.min {
-            abs($0 - store.settings.autoHideDelaySeconds) < abs($1 - store.settings.autoHideDelaySeconds)
-        } ?? 5
-    }
-
-    private func boxIconActionBinding(
-        _ keyPath: WritableKeyPath<AppSettings, BoxIconAction>,
-        fallback: BoxIconAction
-    ) -> Binding<BoxIconAction> {
-        Binding(
-            get: {
-                let action = store.settings[keyPath: keyPath]
-                return BoxIconAction.clickActionCases.contains(action) ? action : fallback
-            },
-            set: { action in
-                store.update { $0[keyPath: keyPath] = action }
-            }
-        )
-    }
-
-    private func shortcutRow(
-        _ title: String,
-        target: ShortcutRecordingTarget,
-        shortcut: KeyboardShortcutSetting
-    ) -> some View {
-        let isRecording = shortcutRecordingTarget == target
-
-        return SettingsRow(title) {
-            Text(isRecording ? "Press shortcut" : shortcut.displayTitle)
-                .foregroundStyle(isRecording ? Color.accentColor : Color.secondary)
-                .monospaced()
-                .fixedSize()
-                .frame(minWidth: 96, alignment: .trailing)
-            Button {
-                if isRecording {
-                    stopShortcutCapture()
-                } else {
-                    startShortcutCapture(target)
-                }
-            } label: {
-                Text(isRecording ? "Cancel" : "Change")
-                    .frame(minWidth: 52)
-            }
-        }
-    }
-
-    private func startShortcutCapture(_ target: ShortcutRecordingTarget) {
-        stopShortcutCapture()
-        shortcutRecordingTarget = target
-        actions.setShortcutRecordingActive(true)
-
-        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.keyCode == 53 {
-                stopShortcutCapture()
-                return nil
-            }
-
-            guard let shortcut = KeyboardShortcutSetting.from(event: event) else {
-                NSSound.beep()
-                return nil
-            }
-
-            store.update { settings in
-                switch target {
-                case .menuBarIcon:
-                    settings.menuBarIconShortcut = shortcut
-                case .boxUI:
-                    settings.boxUIShortcut = shortcut
-                }
-            }
-            stopShortcutCapture()
-            return nil
-        }
-    }
-
-    private func stopShortcutCapture() {
-        if let shortcutMonitor {
-            NSEvent.removeMonitor(shortcutMonitor)
-            self.shortcutMonitor = nil
-        }
-        if shortcutRecordingTarget != nil {
-            shortcutRecordingTarget = nil
-            actions.setShortcutRecordingActive(false)
-        }
-    }
-
-    private func resetSettingsToDefaults() {
-        stopShortcutCapture()
-        store.resetToDefaults()
-        actions.setLaunchAtLogin(AppSettings.defaults.launchAtLogin)
-    }
-
-    private var displayTab: some View {
-        SettingsForm {
-            Section("Box Icons") {
-                Toggle("Show Box UI alerts", isOn: Binding(
-                    get: { store.settings.boxStatusMessagesEnabled },
-                    set: { enabled in store.update { $0.boxStatusMessagesEnabled = enabled } }
-                ))
-
-                SettingsRow("Icons per row") {
-                    Text("\(store.settings.boxMaxColumns)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .frame(width: 44, alignment: .trailing)
-                    Stepper("Icons per row", value: Binding(
-                        get: { store.settings.boxMaxColumns },
-                        set: { value in
-                            store.update { $0.boxMaxColumns = max(1, min(20, value)) }
-                        }
-                    ), in: 1...20)
-                    .labelsHidden()
-                }
-            }
-
-            Section("Menu Bar Icons") {
-                SettingsRow("Hidden icons") {
-                    Button("Show hidden icons") {
-                        actions.showHiddenIcons()
-                    }
-                    Button("Hide again") {
-                        actions.hideHiddenIcons()
-                    }
-                }
-            }
-        }
-    }
-
-    private var permissionTab: some View {
-        SettingsForm {
-            Section {
-                PermissionRow(
-                    title: permissions.snapshot.fullDiskAccess == nil
-                        ? "Accessibility" : "Device Control and Data Access (Accessibility)",
-                    description: "Required to find menu bar icons and open their menus from Box UI.",
-                    access: permissions.snapshot.accessibility ? .available : .denied,
-                    action: actions.requestAccessibility
-                )
-
-                if let diskAccess = permissions.snapshot.fullDiskAccess {
-                    PermissionRow(
-                        title: "Full Disk Access",
-                        description: "Required to hide icons on macOS 27. MenuBox uses this to access menu bar settings. This macOS permission also allows access to other apps’ data.",
-                        access: diskAccess,
-                        action: actions.requestFullDiskAccess
-                    )
-                }
-            } header: {
-                Text("Required Permissions")
-            } footer: {
-                Text("Enable MenuBox in System Settings → Privacy & Security.")
-            }
-
-            Section {
-                SettingsRow("MenuBox application") {
-                    Button("Show in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
-                    }
-                }
-            } header: {
-                Text("Setup")
-            } footer: {
-                Text("Open System Settings, then turn on MenuBox in each list. If it is missing, use the + button to add this app. If macOS asks, quit and reopen MenuBox after changing access.")
-            }
-
-            Section {
-                HStack(spacing: SettingsLayout.rowSpacing) {
-                    Label(permissions.snapshot.isReady ? "All required permissions are ready." : "Waiting for access…",
-                          systemImage: permissions.snapshot.isReady ? "checkmark.circle.fill" : "info.circle")
-                        .foregroundStyle(permissions.snapshot.isReady ? Color.green : Color.secondary)
-                    Spacer()
-                    Button("Check Again") { permissions.refresh() }
-                }
-                .frame(minHeight: SettingsLayout.rowHeight)
-                if permissions.snapshot.fullDiskAccess == .unavailable {
-                    SettingsDescription("Menu bar settings could not be checked. This does not necessarily mean access was denied. Try checking again.")
-                }
-            } header: {
-                Text("Status")
-            } footer: {
-                Text("Permission status updates automatically when you return here.")
-            }
-        }
-    }
-}
-
-private enum SettingsLayout {
-    static let windowPadding: CGFloat = 20
-    static let rowSpacing: CGFloat = 12
-    static let textSpacing: CGFloat = 4
-    static let rowHeight: CGFloat = 24
-}
-
-/// Keep every tab on the same native spacing, section, and control styles.
-private struct SettingsForm<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        Form { content }
-            .formStyle(.grouped)
-            .controlSize(.regular)
-            .buttonStyle(.bordered)
-    }
-}
-
-private struct SettingsRow<Content: View>: View {
-    let title: String
-    var description: String?
-    @ViewBuilder let content: Content
-
-    init(_ title: String, description: String? = nil, @ViewBuilder content: () -> Content) {
-        self.title = title
-        self.description = description
-        self.content = content()
-    }
-
-    var body: some View {
-        HStack(spacing: SettingsLayout.rowSpacing) {
-            VStack(alignment: .leading, spacing: SettingsLayout.textSpacing) {
-                Text(title)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let description {
-                    SettingsDescription(description)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            content
-        }
-        .frame(minHeight: SettingsLayout.rowHeight)
-    }
-}
-
-private struct SettingsDescription: View {
-    let text: String
-
-    init(_ text: String) { self.text = text }
-
-    var body: some View {
-        Text(text)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
-struct PermissionRow: View {
-    let title: String
-    let description: String
-    let access: PermissionAccess
-    let action: () -> Void
-
-    var body: some View {
-        SettingsRow(title, description: description) {
-            VStack(alignment: .trailing, spacing: SettingsLayout.rowSpacing) {
-                Label(access.title, systemImage: statusIcon)
-                    .font(.callout)
-                    .foregroundStyle(access == .available ? .green : .orange)
-                    .fixedSize()
-                Button("Open System Settings", action: action)
-                    .fixedSize()
-            }
-        }
-    }
-
-    private var statusIcon: String {
-        switch access {
-        case .available: return "checkmark.circle.fill"
-        case .denied: return "exclamationmark.triangle.fill"
-        case .unavailable: return "questionmark.circle.fill"
-        }
-    }
-}
-
-enum LaunchAtLoginManager {
-    static func setEnabled(_ enabled: Bool) {
-        guard #available(macOS 13.0, *) else { return }
-
-        do {
-            if enabled {
-                if SMAppService.mainApp.status != .enabled {
-                    try SMAppService.mainApp.register()
-                }
-            } else if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            }
-        } catch {
-            NSLog("MenuBox launch-at-login update failed: \(error.localizedDescription)")
         }
     }
 }

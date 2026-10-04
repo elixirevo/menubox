@@ -1,7 +1,9 @@
 import AppKit
-import Sparkle
+import MacAppLifecycle
+import MacAppUpdatesSparkle
 
 @main
+@MainActor
 enum MenuBoxApplication {
     private static let delegate = AppDelegate()
 
@@ -16,22 +18,34 @@ enum MenuBoxApplication {
         if CommandLine.arguments.contains("--menubox-visibility-recovery") {
             exit(NativeMenuBarRecovery.runHelper())
         }
+        if CommandLine.arguments.contains("--menubox-settings-preview") {
+            MenuBoxSettingsPreview.run()
+            return
+        }
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
         app.delegate = delegate
+        do { try delegate.lifecycle.start() }
+        catch {
+            NSLog("[MenuBox] Unable to start: %@", error.localizedDescription)
+            return
+        }
         app.run()
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: MenuBoxController?
-    private let updaterController = SPUStandardUpdaterController(
-        startingUpdater: true,
-        updaterDelegate: nil,
-        userDriverDelegate: nil
+    private let updates = SparkleUpdates()
+    private let diagnostics = MenuBoxDiagnostics()
+    lazy var lifecycle = AppLifecycleController(
+        mode: .accessory,
+        reopen: .custom { [weak self] _ in self?.controller?.openSettings() }
     )
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        do { try diagnostics.start() }
+        catch { NSLog("[MenuBox] Crash reporting could not start: %@", String(describing: error)) }
         do { try NativeMenuBarPlacement.restore() }
         catch { NSLog("[MenuBox] Menu bar position recovery pending: %@", error.localizedDescription) }
         do { try NativeMenuBarRecovery.restore() }
@@ -40,16 +54,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MenuBarAccessDiagnostics.writeSnapshot()
             MenuBarAccessDiagnostics.writeLayoutSnapshot()
         }
-        let controller = MenuBoxController(checkForUpdates: { [updaterController] in
-            updaterController.checkForUpdates(nil)
-        })
+        do { try updates.start() }
+        catch { NSLog("[MenuBox] Updater unavailable: %@", error.localizedDescription) }
+        let controller = MenuBoxController(updates: updates.settings, crashPreference: diagnostics.settingsPreference)
         self.controller = controller
         controller.start()
         MenuBarVisibilityRoundTripProbe.runIfRequested()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        false
+        lifecycle.shouldTerminateAfterLastWindowClosed
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        lifecycle.handleReopen(hasVisibleWindows: flag)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -53,8 +53,9 @@ final class SettingsStore: ObservableObject {
         persist(copy)
     }
 
-    func resetToDefaults() {
+    func resetToDefaults(preservingLoginItem: Bool = false) {
         var defaults = AppSettings.defaults
+        if preservingLoginItem { defaults.launchAtLogin = settings.launchAtLogin }
         Self.normalize(&defaults)
         settings = defaults
         persist(defaults)

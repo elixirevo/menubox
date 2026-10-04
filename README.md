@@ -30,13 +30,13 @@
 | `Option + B` | Toggle hidden menu bar icons |
 | `Command + B` | Toggle Box UI |
 
-*You can change shortcuts from Settings > General > Shortcuts.*
+*You can change shortcuts from Settings > Shortcuts.*
 *You can disable all shortcuts with Settings > General > Shortcuts > Enable shortcuts.*
 *If a shortcut conflicts with another app, choose a less common combination or disable MenuBox shortcuts.*
 
 ## 🚀 Installation & Build
 
-MenuBox is built with Swift Package Manager and a small app-bundle build script.
+MenuBox is built with Swift Package Manager and a small app-bundle build script. Settings, language selection, app lifecycle and updater integration use the local MacAppEssentials package. See [integration and verification](docs/shared-library.md).
 
 ### Install via Homebrew
 
@@ -67,25 +67,33 @@ brew install --cask menubox
    cd menubox
    ```
 
-2. Build the Swift executable:
+2. Check out the shared package next to the app (required local dependency):
+
+   ```bash
+   mkdir -p ../tools
+   git clone https://github.com/elixirevo/mac-app-essentials.git ../tools/library
+   git -C ../tools/library checkout c270e68e993a49854fa5638071a67967c58530f4
+   ```
+
+3. Build the Swift executable:
 
    ```bash
    swift build
    ```
 
-3. Build the macOS app bundle:
+4. Build the macOS app bundle:
 
    ```bash
    ./scripts/build_app.sh arm64 # Use x86_64 for Intel Macs.
    ```
 
-4. The built application will be located at:
+5. The built application will be located at:
 
    ```text
    dist/MenuBox.app
    ```
 
-5. Move it to your Applications folder:
+6. Move it to your Applications folder:
 
    ```bash
    mv dist/MenuBox.app /Applications/
@@ -145,7 +153,7 @@ If Accessibility permission does not apply after rebuilding the app, remove the 
 
 When upgrading from the former app name, MenuBox imports saved app settings and menu bar positions on first launch. Its bundle identifier is now `com.elixirevo.MenuBox`; re-enable Accessibility, Screen Recording (if used), and Launch at Login for the renamed app as needed.
 
-*Note: MenuBox works locally on your Mac. It does not send menu bar data or app information over the network.*
+*Menu bar features run locally. Optional crash reporting sends app/build version, macOS/device information and technical crash details to Sentry after you enable Settings → General → Diagnostics → Send crash reports and restart. It is off by default; preference changes require a restart. Menu bar inventory is not attached to reports. Sparkle separately checks for app updates.*
 
 ## 🧭 Usage
 

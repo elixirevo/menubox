@@ -30,7 +30,10 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 cd "$ROOT_DIR"
 
 "$ROOT_DIR/scripts/generate_app_icon.sh"
-swift build -c release --arch "$ARCH"
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+swift build -c release --arch "$ARCH" --sdk "$SDK_PATH" \
+  -Xlinker -platform_version -Xlinker macos -Xlinker "$MIN_MACOS" -Xlinker "$SDK_VERSION"
 BIN_PATH="$(swift build -c release --arch "$ARCH" --show-bin-path)"
 
 if [[ ! -f "$BIN_PATH/$EXECUTABLE_NAME" ]]; then
@@ -41,6 +44,62 @@ fi
 
 cp "$BIN_PATH/$EXECUTABLE_NAME" "$MACOS_DIR/$EXECUTABLE_NAME"
 chmod +x "$MACOS_DIR/$EXECUTABLE_NAME"
+
+BUILD_METADATA="$(xcrun vtool -show-build "$MACOS_DIR/$EXECUTABLE_NAME")"
+ACTUAL_MINOS="$(awk '/minos / {print $2; exit}' <<< "$BUILD_METADATA")"
+ACTUAL_SDK="$(awk '/sdk / {print $2; exit}' <<< "$BUILD_METADATA")"
+canonical_version() { sed -E 's/(\.0)+$//' <<< "$1"; }
+if [[ "$(canonical_version "$ACTUAL_MINOS")" != "$(canonical_version "$MIN_MACOS")" ||
+      "$(canonical_version "$ACTUAL_SDK")" != "$(canonical_version "$SDK_VERSION")" ]]; then
+  echo "Unexpected deployment metadata: minos=$ACTUAL_MINOS sdk=$ACTUAL_SDK"
+  exit 1
+fi
+
+# SwiftPM's generated accessors resolve these from Contents/Resources in a .app.
+for bundle in MenuBox_MenuBox MacAppEssentials_MacAppSettings MacAppEssentials_MacAppMainMenu; do
+  if [[ ! -d "$BIN_PATH/$bundle.bundle" ]]; then
+    echo "Required resource bundle missing: $bundle.bundle"
+    exit 1
+  fi
+  ditto "$BIN_PATH/$bundle.bundle" "$RESOURCES_DIR/$bundle.bundle"
+done
+
+
+# Sentry is statically linked; package its privacy resource without embedding
+# the static framework as a runtime dependency.
+SENTRY_RESOURCES="$BIN_PATH/Sentry.framework/Resources"
+if [[ ! -f "$SENTRY_RESOURCES/PrivacyInfo.xcprivacy" ]]; then
+  echo "Sentry privacy manifest missing: $SENTRY_RESOURCES"
+  exit 1
+fi
+SENTRY_BUNDLE="$RESOURCES_DIR/SentryResources.bundle/Contents"
+mkdir -p "$SENTRY_BUNDLE/Resources"
+cp "$SENTRY_RESOURCES/PrivacyInfo.xcprivacy" "$SENTRY_BUNDLE/Resources/"
+cat > "$SENTRY_BUNDLE/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>io.sentry.MenuBoxResources</string>
+<key>CFBundleName</key><string>SentryResources</string>
+<key>CFBundlePackageType</key><string>BNDL</string>
+</dict></plist>
+PLIST
+
+# Retain matching symbols per release/build/architecture, outside the shipped app.
+DSYM_DIR="$DIST_DIR/symbols/$PRODUCT_NAME-$APP_VERSION-$APP_BUILD-$ARCH.app.dSYM"
+mkdir -p "$(dirname "$DSYM_DIR")"
+rm -rf "$DSYM_DIR"
+if [[ -d "$BIN_PATH/$EXECUTABLE_NAME.dSYM" ]]; then
+  ditto "$BIN_PATH/$EXECUTABLE_NAME.dSYM" "$DSYM_DIR"
+else
+  xcrun dsymutil "$BIN_PATH/$EXECUTABLE_NAME" -o "$DSYM_DIR"
+fi
+BINARY_UUIDS="$(xcrun dwarfdump --uuid "$MACOS_DIR/$EXECUTABLE_NAME" | awk '{print $2}' | sort)"
+SYMBOL_UUIDS="$(xcrun dwarfdump --uuid "$DSYM_DIR" | awk '{print $2}' | sort)"
+if [[ -z "$BINARY_UUIDS" || "$BINARY_UUIDS" != "$SYMBOL_UUIDS" ]]; then
+  echo "App and dSYM UUIDs do not match."
+  exit 1
+fi
 
 if ! otool -l "$MACOS_DIR/$EXECUTABLE_NAME" | grep -q "@executable_path/../Frameworks"; then
   install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$EXECUTABLE_NAME"
