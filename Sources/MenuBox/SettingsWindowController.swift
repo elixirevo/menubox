@@ -11,7 +11,7 @@ func menuBoxLocalized(_ key: String) -> String {
     AppLocalizer.current.string(key, bundle: .module)
 }
 
-enum SettingsTab { case general, display, shortcuts, permissions, updates, about }
+enum SettingsTab { case general, display, shortcuts, permissions, updates, support, terms, about }
 enum MenuBoxShortcutTarget { case menuBarIcon, boxUI }
 
 struct SettingsActions {
@@ -73,6 +73,16 @@ final class SettingsWindowController {
     private let crashPreference: CrashReportingPreference?
     private var observations = Set<AnyCancellable>()
 
+    private lazy var identity = SettingsIdentity(bundle: .main, icon: NSApp.applicationIconImage,
+        website: URL(string: "https://github.com/elixirevo/menubox"))
+    private lazy var support = try! SupportSettingsModel(
+        diagnostics: SupportDiagnostics(identity: identity, distribution: .direct),
+        links: [
+            try! SupportLink(.help, url: URL(string: "https://github.com/elixirevo/menubox#readme")!),
+            try! SupportLink(.reportIssue, url: URL(string: "https://github.com/elixirevo/menubox/issues")!)
+        ]
+    )
+
     private lazy var reset = try! SettingsResetModel(actions: [
         .init(id: "menubox", title: "MenuBox", detail: menuBoxLocalized(
             "Restore auto-hide, Box UI, click actions, shortcuts and saved ranges. Language, login items, updates and macOS permissions stay unchanged."
@@ -90,7 +100,8 @@ final class SettingsWindowController {
         .custom(id: "display", title: menuBoxLocalized("Display"), symbol: "menubar.rectangle", color: .orange) { [store, actions] in
             MenuBoxDisplaySettings(store: store, actions: actions)
         },
-        .builtIn(.shortcuts), .builtIn(.permissions), .builtIn(.updates), .builtIn(.about)
+        .builtIn(.shortcuts), .builtIn(.permissions), .builtIn(.updates), .support,
+        .builtIn(.about)
     ])
 
     private(set) lazy var host = MacAppSettings.SettingsWindowController(
@@ -98,10 +109,11 @@ final class SettingsWindowController {
         navigation: navigation, onClose: { [weak self] in self?.shortcuts.stopRecording() }
     ) { [self] in
         AppSettingsView(
-            identity: SettingsIdentity(bundle: .main, icon: NSApp.applicationIconImage,
-                website: URL(string: "https://github.com/elixirevo/menubox")),
+            identity: identity,
             navigation: navigation, shortcuts: shortcuts, permissions: permissionModel,
-            updates: updates, language: language, launchAtLogin: login, pages: pages, reset: reset
+            updates: updates, language: language, launchAtLogin: login, pages: pages,
+            distribution: .direct, support: support, reset: reset,
+            supportContent: { AnyView(MenuBoxTermsSupportSection()) }
         ) {
             MenuBoxGeneralSettings(store: store)
             if let crashPreference { DiagnosticsSettingsSection(preference: crashPreference) }
@@ -142,6 +154,8 @@ final class SettingsWindowController {
             case .shortcuts: page = .builtIn(.shortcuts)
             case .permissions: page = .builtIn(.permissions)
             case .updates: page = .builtIn(.updates)
+            case .support: page = .support
+            case .terms: page = SupportLegalLinks.settingsPageID
             case .about: page = .builtIn(.about)
             }
             host.show(pageID: page)

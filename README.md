@@ -72,7 +72,7 @@ brew install --cask menubox
    ```bash
    mkdir -p ../tools
    git clone https://github.com/elixirevo/mac-app-essentials.git ../tools/library
-   git -C ../tools/library checkout c270e68e993a49854fa5638071a67967c58530f4
+   git -C ../tools/library checkout a5771978e8f196aa8f1712a96d076c1c9dc0e371
    ```
 
 3. Build the Swift executable:
@@ -149,6 +149,20 @@ The former Sparkle private key is unavailable, and StatusBox 1.1 was ad-hoc sign
 ### Prepare a Release
 
 See [the release workflow](docs/releasing.md) for Developer ID signing, Apple notarization, Sparkle key backup, GitHub publication, and Homebrew cask updates. Release artifacts must pass signature, notarization, appcast, and checksum verification before publication.
+
+## Help & Support
+
+Settings → Help & Support (also available from the Help menu) opens the usage guide
+or issue tracker. Review the displayed app version, build, macOS version and
+distribution channel before choosing Copy Information or Save Information. Nothing
+is submitted automatically. General → Restore Defaults resets MenuBox preferences
+without changing crash-reporting consent or system permissions.
+
+Settings → Help & Support → Read Terms includes the Korean or English terms for this build,
+available offline with selectable text and Save Terms. The document follows the
+app language and does not record agreement when read or saved. Sources:
+[Korean](Sources/MenuBox/Resources/ko.lproj/TermsOfUse.txt) and
+[English](Sources/MenuBox/Resources/en.lproj/TermsOfUse.txt).
 
 ## 🔒 Permissions
 

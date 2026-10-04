@@ -54,13 +54,15 @@ final class MenuBoxSettingsPreview: NSObject, NSApplicationDelegate {
         settings?.host.window?.setFrameAutosaveName("")
         mainMenu = try? MainMenuController(configuration: .init(appName: "MenuBox",
             settings: { [weak self] in self?.settings?.show() },
-            about: { [weak self] in self?.settings?.show(tab: .about) }))
+            about: { [weak self] in self?.settings?.show(tab: .about) },
+            help: { [weak self] in self?.settings?.show(tab: .support) }))
         mainMenu?.install()
         let arguments = CommandLine.arguments
         if arguments.contains("--preview-dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
         if arguments.contains("--preview-light") { NSApp.appearance = NSAppearance(named: .aqua) }
         let pages: [String: SettingsTab] = ["general": .general, "display": .display,
-            "shortcuts": .shortcuts, "permissions": .permissions, "updates": .updates, "about": .about]
+            "shortcuts": .shortcuts, "permissions": .permissions, "updates": .updates,
+            "support": .support, "terms": .terms, "about": .about]
         let page = arguments.firstIndex(of: "--preview-page").flatMap { index in
             index + 1 < arguments.count ? pages[arguments[index + 1]] : nil
         }
@@ -72,18 +74,23 @@ final class MenuBoxSettingsPreview: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard let settings, let window = settings.host.window else { exit(1) }
-                for page in [SettingsTab.general, .display, .shortcuts, .permissions, .updates, .about] {
+                for page in [SettingsTab.general, .display, .shortcuts, .permissions, .updates, .support, .about] {
                     settings.show(tab: page)
                     window.contentView?.layoutSubtreeIfNeeded()
                     guard window.isVisible, lifecycle.hasExpectedActivationPolicy else { exit(1) }
+                    if case .support = page, settings.navigation.pageID != .support { exit(1) }
                 }
+                // Legacy terms destinations now resolve to the one support page.
+                settings.show(tab: .terms)
+                guard settings.navigation.pageID == SupportLegalLinks.settingsPageID else { exit(1) }
+                guard !settings.navigation.select(.custom("terms")) else { exit(1) }
                 window.miniaturize(nil)
                 settings.show()
                 guard !window.isMiniaturized else { exit(1) }
                 window.close()
                 _ = lifecycle.handleReopen(hasVisibleWindows: false)
                 guard window.isVisible, lifecycle.hasExpectedActivationPolicy else { exit(1) }
-                print("MenuBox settings smoke passed: six pages, minimize, close/reopen, accessory policy")
+                print("MenuBox settings smoke passed: seven pages, terms redirects to support, minimize, close/reopen, accessory policy")
                 NSApp.terminate(nil)
             }
         }

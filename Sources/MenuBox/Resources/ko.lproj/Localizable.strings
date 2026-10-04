@@ -34,3 +34,15 @@
 "Required to find menu bar icons and open their menus from Box UI. On macOS 27 this permission is called Device Control and Data Access." = "메뉴바 아이콘을 찾고 Box UI에서 해당 메뉴를 여는 데 필요합니다. macOS 27에서는 기기 제어 및 데이터 접근 권한으로 표시됩니다.";
 "Required to hide icons on macOS 27. MenuBox accesses protected menu bar settings. This permission also allows access to other apps’ data. Add MenuBox from Applications with the + button if it is missing." = "macOS 27에서 아이콘을 숨기려면 필요합니다. MenuBox는 보호된 메뉴바 설정에 접근합니다. 이 권한은 다른 앱의 데이터에도 접근할 수 있게 합니다. 목록에 없다면 + 버튼으로 응용 프로그램의 MenuBox를 추가하세요.";
 "Accessibility" = "손쉬운 사용";
+"Terms of Use" = "이용약관";
+"Legal Documents" = "법률 문서";
+"Read Terms…" = "약관 읽기…";
+"Close" = "닫기";
+"Bundled document" = "앱에 포함된 문서";
+"Available offline. Reading or saving these terms does not record agreement." = "오프라인으로 열람할 수 있습니다. 약관을 읽거나 저장해도 동의한 것으로 기록하지 않습니다.";
+"Save Terms…" = "약관 저장…";
+"Full text" = "전문";
+"The bundled terms could not be loaded." = "앱에 포함된 약관을 불러올 수 없습니다.";
+"The terms could not be saved. Please try again." = "약관을 저장하지 못했습니다. 다시 시도해 주세요.";
+"Show License Files…" = "라이선스 파일 보기…";
+"The bundled license files could not be opened." = "앱에 포함된 라이선스 파일을 열 수 없습니다.";

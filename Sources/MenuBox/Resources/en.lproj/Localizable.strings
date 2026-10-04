@@ -34,3 +34,15 @@
 "Required to find menu bar icons and open their menus from Box UI. On macOS 27 this permission is called Device Control and Data Access." = "Required to find menu bar icons and open their menus from Box UI. On macOS 27 this permission is called Device Control and Data Access.";
 "Required to hide icons on macOS 27. MenuBox accesses protected menu bar settings. This permission also allows access to other apps’ data. Add MenuBox from Applications with the + button if it is missing." = "Required to hide icons on macOS 27. MenuBox accesses protected menu bar settings. This permission also allows access to other apps’ data. Add MenuBox from Applications with the + button if it is missing.";
 "Accessibility" = "Accessibility";
+"Terms of Use" = "Terms of Use";
+"Legal Documents" = "Legal Documents";
+"Read Terms…" = "Read Terms…";
+"Close" = "Close";
+"Bundled document" = "Bundled document";
+"Available offline. Reading or saving these terms does not record agreement." = "Available offline. Reading or saving these terms does not record agreement.";
+"Save Terms…" = "Save Terms…";
+"Full text" = "Full text";
+"The bundled terms could not be loaded." = "The bundled terms could not be loaded.";
+"The terms could not be saved. Please try again." = "The terms could not be saved. Please try again.";
+"Show License Files…" = "Show License Files…";
+"The bundled license files could not be opened." = "The bundled license files could not be opened.";

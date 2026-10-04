@@ -1,0 +1,101 @@
+MenuBox Terms of Use
+
+Terms version: 1.1
+Effective date: 2026-10-04
+
+1. Operator and scope
+
+MenuBox (the “App”) is a free macOS menu bar utility provided by elixirevo, an individual operator based in the Republic of Korea (the “Operator,” “we,” or “us”). The App hides and reveals menu bar icons to the left of a marker and provides a Box UI for accessing hidden apps, keyboard shortcuts, and automatic hiding.
+
+Support, complaints, and rights requests: elixirevo@gmail.com
+Website and usage guide: https://github.com/elixirevo/menubox
+Public issue tracker: https://github.com/elixirevo/menubox/issues
+Terms for this build: read and save offline in Settings → Help & Support → Read Terms
+
+Do not post personal information, passwords, or confidential materials in public issues. Use email for private inquiries. These Terms do not limit rights guaranteed by applicable law.
+
+2. Eligibility and access to the Terms
+
+The App is intended for adults who can independently enter into contracts where they reside. Users in Korea must be at least 19; users in the United States must be at least 18 and have contractual capacity under their state's law. A person contracting for an organization must have authority to do so. Statutory rights concerning minors' transactions, including cancellation rights, remain unaffected.
+
+This document is included with the App and can be read in full and saved. A separate agreement under these Terms is formed only through express acceptance in a separate acceptance process. The current terms viewer does not request or record acceptance. Installation, ordinary use, viewing, scrolling, saving, or closing settings is not treated as separate acceptance of these Terms. Software permissions are governed by the license in Section 3.
+
+3. License and intellectual property
+
+Copyright (C) 2026 elixirevo and the respective contributors.
+
+MenuBox's project-owned code, build materials, documentation and artwork in this build are licensed under the GNU General Public License, version 3 only (SPDX: GPL-3.0-only). Modification, redistribution and sale are permitted under the GPL. Binary distributors must provide the exact Corresponding Source and build materials in accordance with section 6. The software is provided WITHOUT ANY WARRANTY, including implied MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE, to the extent permitted by law. The English GPL text in LICENSE governs; later GPL versions do not apply automatically.
+
+Permission to use the MenuBox or elixirevo names, MenuBox logo or app icon as the branding of a third-party app, product or service is NOT granted. Modified, repackaged or independently distributed apps must use their own product name and logo/icon and clearly identify their unofficial status, unless separately authorized or independently permitted by law. Copyright permission for code or artwork does not grant trademark rights.
+
+Project-owned material is subject to GPL section 7(c) terms prohibiting misrepresentation of origin and requiring reasonable identification of modified versions, section 7(d) limits on publicity implying sponsorship or endorsement by authors/licensors, and section 7(e) withholding of trademark rights. Required legal notices, truthful attribution, accurate identification of official originals, news, criticism and uses permitted by law remain allowed. This is not a prohibition on GPL-compliant code redistribution.
+
+The full GPL, licensing scope, brand policy and third-party notices are available in Settings → Help & Support → Read Terms → Show License Files and in Contents/Resources/Legal inside the App. Third-party components retain their licenses. Permissions already granted for earlier MIT versions are not retroactively withdrawn. These Terms do not add restrictions to software use, modification or redistribution under the GPL. GPL text: https://www.gnu.org/licenses/gpl-3.0.html
+
+4. Your materials and responsible use
+
+Rights in menu bar app information, third-party menus, and materials you process remain with you or their rightful owners. Using the App does not transfer ownership or grant us advertising or promotional rights in those materials.
+
+The effects of opening another app's menus and executing commands depend on that app. Check the target and content of consequential commands, such as deleting files or transmitting information, and keep backups where needed. This guidance does not release us from statutory liability.
+
+Do not use the App for unlawful conduct, including copyright or privacy infringement, unlawful surveillance, malware distribution, attacks on services, or credential theft. Activities permitted by law or an open-source license are not prohibited by this provision.
+
+5. System permissions and data processing
+
+Menu bar features run on your Mac. Accessibility permission is used to discover menu bar items and open third-party menus from Box UI. On macOS 27, this permission may be shown as Device Control and Data Access. Icon hiding on macOS 27 also uses Full Disk Access to access protected menu bar settings. Full Disk Access is a broad system permission that can also allow access to other apps' data. You can manage permissions in macOS settings; refusing a permission limits features that require it.
+
+Crash reporting is off by default. Enabling Settings → General → Diagnostics and restarting the App allows app/build version, macOS/device information, and technical crash details to be sent to Sentry. Menu bar app inventory is not attached to reports. Disabling crash reporting also takes effect after a restart. Crashes cached during an earlier enabled run may be sent after reporting is enabled again. Reading or accepting these Terms does not replace your separate crash-reporting choice.
+
+Sparkle connects to the distribution feed to check for updates. You can manage automatic checking in Settings → Software Update or the marker's context menu. Support diagnostics are limited to app name, version, build, macOS version, and distribution channel; they are exported only when you choose to copy or save them. The App does not automatically submit issues or emails.
+
+This functional description does not replace a separate privacy policy or legally required notices and consent, including for international transfers. Contact the email in Section 1 with privacy inquiries or rights requests. These Terms do not provide blanket consent to processing that requires separate consent.
+
+6. Fees
+
+MenuBox's currently available features are free. There are no in-app purchases, paid subscriptions, or automatically renewing charges. If we offer paid features later, we will disclose their prices and conditions and obtain separate purchase authorization. Existing use does not authorize charges.
+
+7. Stopping use and refunds
+
+You may stop using the App at any time by quitting or removing it. Manage launch at login in the App's settings or macOS login items. Normal App termination is designed to restore icon visibility that the App was managing. Contact support if operating-system or third-party app state prevents restoration.
+
+There are currently no paid purchases, so usage-fee refunds and additional voluntary refund benefits do not apply. Mandatory consumer protections and statutory remedies for defects or harm in your jurisdiction, including Korea and the United States, remain unaffected.
+
+8. Updates and changes to support
+
+We may provide updates for bug fixes, security, and compatibility. Project release information describes supported operating systems and material changes. Automatic update checking follows your selected setting; enabling checking is not treated as separate consent to automatic installation.
+
+Menu bar behavior depends on macOS and third-party apps. Features that access protected preferences and private system interfaces may be limited or change behavior after operating-system updates.
+
+We ordinarily give at least 30 days' notice through the project website or App before reducing core features or ending official distribution or support, explaining the reasons and effects. If a security incident or urgent legal requirement prevents advance notice, we notify users promptly. Longer mandatory notice periods apply. Ending support does not extinguish rights already obtained under the open-source license.
+
+9. Restrictions and termination
+
+The App has no user accounts or paid-entitlement server. We may limit access to online support or distribution channels to the extent necessary to address a concrete security threat or unlawful abuse. Where possible, we explain the reason and remedy, and you may contest the action through the email in Section 1.
+
+Stopping use does not affect accrued liability, rights in materials, applicable licenses, or statutory remedies. Termination of software permissions is governed by the applicable license and law.
+
+10. Warranties and liability
+
+We use reasonable care in providing the App and addressing known material problems. We do not guarantee uninterrupted or error-free operation on every device, operating system, or third-party app. Applicable license warranty provisions operate only to the extent permitted by law.
+
+Each party is responsible under applicable law for harm attributable to that party's fault. We do not exclude or limit liability for intentional misconduct, gross negligence, personal injury, or liability that cannot lawfully be limited. These Terms do not impose blanket consumer indemnification obligations.
+
+11. Third-party components and services
+
+MenuBox uses components including MacAppEssentials for shared UI, Sparkle for updates, and Sentry for optional crash reporting. GitHub documentation, distribution, and issue pages and third-party apps you separately use may have their own terms. We do not control those services; this does not release us from our own statutory duties.
+
+Current distribution is through the project's direct releases and Homebrew instructions. This document is not a registered Apple custom EULA.
+
+12. Changes to these Terms
+
+We disclose changes, reasons, and the effective date through the project website or App at least seven days before ordinary changes and at least 30 days before material or unfavorable changes. Material changes are also communicated through an available individual contact channel or an in-app notice. Longer mandatory periods apply. The bundled document identifies its terms version; earlier text is retained in the project's version history.
+
+We obtain separate consent when required, including for new payment obligations or material restrictions on rights. Silence or continued use alone is not treated as acceptance, and changes do not apply retroactively to existing disputes. If you disagree, you may stop using the App; existing license rights and statutory remedies remain protected.
+
+13. Governing law, disputes, and language
+
+These Terms are governed by the laws of the Republic of Korea without excluding mandatory consumer protections applicable where you habitually reside. Korean consumers retain mandatory Korean protections; US consumers retain mandatory federal and state protections.
+
+You may seek resolution through the email in Section 1. Informal discussions are not a prerequisite to a lawsuit, regulatory complaint, or statutory remedy. Courts with jurisdiction are determined by applicable law. These Terms do not require arbitration, waive class actions, or designate an exclusive foreign court.
+
+The Korean and English versions are intended to describe the same rights and obligations. Any discrepancy is interpreted using the language presented when the agreement was made and applicable consumer law; translation differences do not reduce mandatory rights. If a provision is invalid, the remaining provisions continue to apply to the extent permitted by law.

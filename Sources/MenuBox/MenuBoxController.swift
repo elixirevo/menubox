@@ -174,6 +174,7 @@ final class MenuBoxController: NSObject {
                 appName: "MenuBox",
                 settings: { [weak self] in self?.openSettings() },
                 about: { [weak self] in self?.openSettings(tab: .about) },
+                help: { [weak self] in self?.openSettings(tab: .support) },
                 sidebar: .sidebar(
                     isVisible: { [weak self] in self?.settingsWindowController?.navigation.isSidebarVisible ?? true },
                     isEnabled: { [weak self] in self?.settingsWindowController?.host.window?.isVisible == true },
