@@ -99,6 +99,16 @@ brew install --cask menubox
    mv dist/MenuBox.app /Applications/
    ```
 
+The app icon is authored in `menubox.icon`. Building requires full Xcode with
+Icon Composer (set `DEVELOPER_DIR` for a nonstandard Xcode installation). The
+build compiles layered `Assets.car` and renders all standard/Retina ICNS sizes
+directly from that document, including small icons used in macOS permission lists.
+`icon.png` is only the README artwork and remains tracked. Generated icons are
+build outputs, not checked-in resources. Run `./scripts/generate_app_icon.sh` to
+generate `Assets.car`, `MenuBox.icns` and `MenuBox.iconset` in `.build/app-icon/`.
+The app build generates these in a temporary directory and copies the compiled
+assets and compatibility ICNS into the app bundle.
+
 ### Build DMGs
 
 Build separate app bundles and DMGs for Apple Silicon and Intel:

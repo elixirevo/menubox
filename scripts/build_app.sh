@@ -29,7 +29,9 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$FRAMEWORKS_DIR"
 cd "$ROOT_DIR"
 
-"$ROOT_DIR/scripts/generate_app_icon.sh"
+ICON_BUILD_DIR="$(mktemp -d "${TMPDIR:-/tmp}/menubox-app-icon.XXXXXX")"
+trap 'rm -rf "$ICON_BUILD_DIR"' EXIT
+MIN_MACOS="$MIN_MACOS" "$ROOT_DIR/scripts/generate_app_icon.sh" "$ICON_BUILD_DIR"
 SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
 SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
 swift build -c release --arch "$ARCH" --sdk "$SDK_PATH" \
@@ -143,12 +145,31 @@ if [[ -n "${RESOURCE_DIRS:-}" ]]; then
   copy_colon_list "$RESOURCE_DIRS" "$RESOURCES_DIR"
 fi
 
+cp "$ICON_BUILD_DIR/Assets.car" "$RESOURCES_DIR/Assets.car"
+cp "$ICON_BUILD_DIR/MenuBox.icns" "$RESOURCES_DIR/MenuBox.icns"
+
+# An explicit legacy override must not be shadowed by the layered app icon.
+if [[ -n "${ICON_ICNS:-}${ICONSET_DIR:-}${ICON_PNG:-}" ]]; then
+  rm "$RESOURCES_DIR/Assets.car"
+  /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$CONTENTS_DIR/Info.plist"
+fi
 if [[ -n "${ICON_ICNS:-}" ]]; then
   cp "$ICON_ICNS" "$RESOURCES_DIR/MenuBox.icns"
 elif [[ -n "${ICONSET_DIR:-}" ]]; then
   iconutil -c icns "$ICONSET_DIR" -o "$RESOURCES_DIR/MenuBox.icns"
 elif [[ -n "${ICON_PNG:-}" ]]; then
-  cp "$ICON_PNG" "$RESOURCES_DIR/AppIcon.png"
+  OVERRIDE_ICONSET="$ICON_BUILD_DIR/Override.iconset"
+  mkdir -p "$OVERRIDE_ICONSET"
+  for size in 16 32 128 256 512; do
+    for scale in 1 2; do
+      suffix=""
+      if [[ "$scale" == 2 ]]; then suffix="@2x"; fi
+      pixels=$((size * scale))
+      sips -s format png -z "$pixels" "$pixels" "$ICON_PNG" \
+        --out "$OVERRIDE_ICONSET/icon_${size}x${size}${suffix}.png" >/dev/null
+    done
+  done
+  iconutil -c icns "$OVERRIDE_ICONSET" -o "$RESOURCES_DIR/MenuBox.icns"
 fi
 
 SPARKLE_FRAMEWORK_SOURCE="${SPARKLE_FRAMEWORK_SOURCE:-}"

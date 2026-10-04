@@ -9,6 +9,10 @@ artifacts
 .build/
 build/
 
+# Generated compatibility icons (source: menubox.icon).
+/Resources/MenuBox.icns
+/Resources/MenuBox.iconset/
+
 # Editor/temp files
 *.swp
 *.swo

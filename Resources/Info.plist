@@ -10,6 +10,8 @@
     <string>MenuBox</string>
     <key>CFBundleIdentifier</key>
     <string>com.elixirevo.MenuBox</string>
+    <key>CFBundleIconName</key>
+    <string>menubox</string>
     <key>CFBundleIconFile</key>
     <string>MenuBox</string>
     <key>CFBundleInfoDictionaryVersion</key>
