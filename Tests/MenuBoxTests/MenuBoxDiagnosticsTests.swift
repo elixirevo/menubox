@@ -14,6 +14,21 @@ final class MenuBoxDiagnosticsTests: XCTestCase {
                   version: "1.4.3", build: "146", environment: "test")
     }
 
+    func testPreparingConsentUIDoesNotStartPreviouslyEnabledSDK() throws {
+        var starts = 0
+        let diagnostics = MenuBoxDiagnostics(preference: .init(activeEnabled: true, save: { _ in }),
+            loadConfiguration: { try self.configuration() }, startService: { configuration, _ in
+                starts += 1
+                return SentryDiagnostics(configuration: configuration)
+            })
+        try diagnostics.prepare()
+        XCTAssertNotNil(diagnostics.settingsPreference)
+        XCTAssertNil(diagnostics.service)
+        XCTAssertEqual(starts, 0)
+        try diagnostics.start()
+        XCTAssertEqual(starts, 1)
+    }
+
     func testMissingConfigurationOmitsSettingsAndNeverStartsSDK() throws {
         var starts = 0
         let diagnostics = MenuBoxDiagnostics(preference: .init(activeEnabled: true, save: { _ in }),

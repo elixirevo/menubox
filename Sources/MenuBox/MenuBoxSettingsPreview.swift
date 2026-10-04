@@ -6,6 +6,7 @@ import MacAppCore
 import MacAppMainMenu
 import MacAppLifecycle
 import MacAppSettings
+import MacAppOnboarding
 
 /// Isolated UI verification: no status items, hotkeys, permission requests,
 /// login registration, visibility recovery or updater startup.
@@ -13,6 +14,7 @@ import MacAppSettings
 final class MenuBoxSettingsPreview: NSObject, NSApplicationDelegate {
     private var mainMenu: MainMenuController?
     private var settings: SettingsWindowController?
+    private var onboarding: MenuBoxOnboarding?
     private let suiteName = "MenuBox.SettingsPreview." + UUID().uuidString
     private lazy var lifecycle = AppLifecycleController(mode: .accessory,
         reopen: .custom { [weak self] _ in self?.settings?.show() })
@@ -40,6 +42,7 @@ final class MenuBoxSettingsPreview: NSObject, NSApplicationDelegate {
                   detail: menuBoxLocalized("Required to hide icons on macOS 27. MenuBox accesses protected menu bar settings. This permission also allows access to other apps’ data. Add MenuBox from Applications with the + button if it is missing."),
                   readStatus: { .unknown }, request: {}, openSystemSettings: {})
         ])
+        let crashPreference = CrashReportingPreference(activeEnabled: false, save: { _ in })
         settings = SettingsWindowController(store: store, permissions: permissions,
             updates: UpdateSettingsModel(),
             actions: .init(showHiddenIcons: {}, hideHiddenIcons: {}, setShortcutRecordingActive: { _ in },
@@ -50,7 +53,13 @@ final class MenuBoxSettingsPreview: NSObject, NSApplicationDelegate {
                     }
                 }), login: LaunchAtLoginModel(read: { .disabled }, write: { _ in }, openSettings: {}),
             permissionModel: model, language: AppLanguageSettings(save: { _ in }),
-            crashPreference: CrashReportingPreference(activeEnabled: false, save: { _ in }))
+            crashPreference: crashPreference,
+            showOnboarding: { [weak self] in self?.onboarding?.showIfNeeded(replay: true) })
+        guard let document = try? MenuBoxTerms.agreementDocument(preview: true) else { NSApp.terminate(nil); return }
+        let receipt = TermsAcceptance(document: document, acceptedAt: Date())
+        let agreement = TermsAgreementModel(document: document, store: .init(read: { receipt }, write: { _ in }))
+        onboarding = MenuBoxOnboarding(permissions: model, agreement: agreement,
+            crashPreference: crashPreference, defaults: defaults)
         settings?.host.window?.setFrameAutosaveName("")
         mainMenu = try? MainMenuController(configuration: .init(appName: "MenuBox",
             settings: { [weak self] in self?.settings?.show() },

@@ -4,11 +4,14 @@
 import AppKit
 import MacAppCore
 import MacAppSettings
+import MacAppOnboarding
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// App-owned, versioned terms. Reading or saving never records acceptance.
 struct MenuBoxTerms {
+    static let version = "1.1"
+    static let acceptanceKey = "MenuBox.Terms.Acceptance"
     let text: String
     let languageCode: String
 
@@ -18,6 +21,22 @@ struct MenuBoxTerms {
             throw CocoaError(.fileNoSuchFile)
         }
         return .init(text: try String(contentsOf: url, encoding: .utf8), languageCode: code)
+    }
+
+    static func agreementDocument(localizer: AppLocalizer = .current, preview: Bool = false) throws -> TermsDocument {
+        let terms = try load(localizer: localizer)
+        let previewNotice = localizer.string("Preview only. No real agreement is recorded.", bundle: .module)
+        let summary = localizer.string("MenuBox now asks for explicit agreement to these terms before use. The app remains free under GPL-3.0-only with its existing brand policy. Crash reporting and macOS permissions are separate choices.", bundle: .module)
+        return try TermsDocument(id: preview ? "menubox-preview-terms" : "menubox-terms-of-use",
+            version: version, language: terms.languageCode,
+            changes: preview ? previewNotice + "\n\n" + summary : summary,
+            fullText: preview ? previewNotice + "\n\n" + terms.text : terms.text)
+    }
+
+    @MainActor
+    static func agreement(defaults: UserDefaults = .standard) throws -> TermsAgreementModel {
+        TermsAgreementModel(document: try agreementDocument(),
+                            store: TermsAcceptanceStore(defaults: defaults, key: acceptanceKey))
     }
 
     var suggestedFilename: String { "MenuBox-Terms-\(languageCode).txt" }

@@ -24,6 +24,7 @@ let package = Package(
             dependencies: [
                 .product(name: "MacAppCore", package: "MacAppEssentials"),
                 .product(name: "MacAppSettings", package: "MacAppEssentials"),
+                .product(name: "MacAppOnboarding", package: "MacAppEssentials"),
                 .product(name: "MacAppLifecycle", package: "MacAppEssentials"),
                 .product(name: "MacAppMainMenu", package: "MacAppEssentials"),
                 .product(name: "MacAppUpdatesSparkle", package: "MacAppUpdatesSparkle"),

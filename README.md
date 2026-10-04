@@ -20,6 +20,7 @@
 * **Configurable Icon Grid:** Choose how many Box UI icons appear per row.
 * **Optional Box UI Alerts:** Turn Box UI alert text on or off. When alerts are off, the Box UI trims its lower spacing.
 * **Configurable Shortcuts:** Change or disable global shortcuts from Settings.
+* **First-Run Guide:** Learn icon placement, Box UI and optional permissions. Replay the guide from Settings > Help & Support.
 * **Launch at Login:** Start MenuBox automatically when you sign in.
 * **Lightweight & Native:** Built with Swift and AppKit. No Electron.
 
@@ -31,7 +32,7 @@
 | `Command + B` | Toggle Box UI |
 
 *You can change shortcuts from Settings > Shortcuts.*
-*You can disable all shortcuts with Settings > General > Shortcuts > Enable shortcuts.*
+*You can disable all shortcuts with Settings > Shortcuts > Enable shortcuts.*
 *If a shortcut conflicts with another app, choose a less common combination or disable MenuBox shortcuts.*
 
 ## 🚀 Installation & Build
@@ -72,7 +73,7 @@ brew install --cask menubox
    ```bash
    mkdir -p ../tools
    git clone https://github.com/elixirevo/mac-app-essentials.git ../tools/library
-   git -C ../tools/library checkout 6a8cb7ebe76d39090b436a55fc4b2d96a11ca221
+   git -C ../tools/library checkout v0.4.0
    ```
 
 3. Build the Swift executable:
@@ -156,7 +157,14 @@ Settings → Help & Support (also available from the Help menu) opens the usage 
 or issue tracker. Review the displayed app version, build, macOS version and
 distribution channel before choosing Copy Information or Save Information. Nothing
 is submitted automatically. General → Restore Defaults resets MenuBox preferences
-without changing crash-reporting consent or system permissions.
+without changing terms acceptance, crash-reporting consent or system permissions.
+
+Before app features start, MenuBox requires explicit agreement to the bundled terms.
+The first-run guide places settings at step 4, followed by terms at step 5, then
+permissions and optional crash reporting. Check the acknowledgement and choose
+Agree and Continue; closing before agreement quits the app. Existing users with
+no acceptance record or a different terms version see a separate agreement window.
+Onboarding completion does not count as acceptance.
 
 Settings → Help & Support → Read Terms includes the Korean or English terms for this build,
 available offline with selectable text and Save Terms. The document follows the

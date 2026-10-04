@@ -46,3 +46,24 @@
 "The terms could not be saved. Please try again." = "The terms could not be saved. Please try again.";
 "Show License Files…" = "Show License Files…";
 "The bundled license files could not be opened." = "The bundled license files could not be opened.";
+
+// First-run guide
+"A tidy menu bar, with your apps still within reach." = "A tidy menu bar, with your apps still within reach.";
+"Choose which icons to hide" = "Choose which icons to hide";
+"Your apps in one small box" = "Your apps in one small box";
+"Option-click the box icon to open Box UI. Click an app to bring its window forward, or right-click to open its menu when supported." = "Option-click the box icon to open Box UI. Click an app to bring its window forward, or right-click to open its menu when supported.";
+"MenuBox box icon" = "MenuBox box icon";
+"Make MenuBox your own" = "Make MenuBox your own";
+"Right-click the tape marker to open Settings. Adjust auto-hide in Display and key combinations in Shortcuts. Find this guide and the offline terms in Help & Support." = "Right-click the tape marker to open Settings. Adjust auto-hide in Display and key combinations in Shortcuts. Find this guide and the offline terms in Help & Support.";
+"MenuBox settings" = "MenuBox settings";
+"Icons to hide on the left, then the tape marker, box icon and visible icons on the right." = "Icons to hide on the left, then the tape marker, box icon and visible icons on the right.";
+"Hold ⌘ and drag the tape marker to the right of the icons you want to hide. The icons to its left belong in MenuBox." = "Hold ⌘ and drag the tape marker to the right of the icons you want to hide. The icons to its left belong in MenuBox.";
+"By default, click the box icon to show or hide icons, and right-click it to open Box UI. On macOS 27, the tape marker hides along with your icons." = "By default, click the box icon to show or hide icons, and right-click it to open Box UI. On macOS 27, the tape marker hides along with your icons.";
+"Getting Started" = "Getting Started";
+"MenuBox guide" = "MenuBox guide";
+"Review icon placement, permissions and optional crash reports." = "Review icon placement, permissions and optional crash reports.";
+"Show Guide…" = "Show Guide…";
+"Preview only. No real agreement is recorded." = "Preview only. No real agreement is recorded.";
+"MenuBox now asks for explicit agreement to these terms before use. The app remains free under GPL-3.0-only with its existing brand policy. Crash reporting and macOS permissions are separate choices." = "MenuBox now asks for explicit agreement to these terms before use. The app remains free under GPL-3.0-only with its existing brand policy. Crash reporting and macOS permissions are separate choices.";
+"Retry loading the terms or quit MenuBox. App features have not started." = "Retry loading the terms or quit MenuBox. App features have not started.";
+"Retry" = "Retry";

@@ -58,7 +58,7 @@ if [[ "$(canonical_version "$ACTUAL_MINOS")" != "$(canonical_version "$MIN_MACOS
 fi
 
 # SwiftPM's generated accessors resolve these from Contents/Resources in a .app.
-for bundle in MenuBox_MenuBox MacAppEssentials_MacAppSettings MacAppEssentials_MacAppMainMenu; do
+for bundle in MenuBox_MenuBox MacAppEssentials_MacAppSettings MacAppEssentials_MacAppMainMenu MacAppEssentials_MacAppOnboarding; do
   if [[ ! -d "$BIN_PATH/$bundle.bundle" ]]; then
     echo "Required resource bundle missing: $bundle.bundle"
     exit 1

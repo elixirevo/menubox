@@ -46,3 +46,24 @@
 "The terms could not be saved. Please try again." = "약관을 저장하지 못했습니다. 다시 시도해 주세요.";
 "Show License Files…" = "라이선스 파일 보기…";
 "The bundled license files could not be opened." = "앱에 포함된 라이선스 파일을 열 수 없습니다.";
+
+// First-run guide
+"A tidy menu bar, with your apps still within reach." = "메뉴 막대는 깔끔하게, 자주 쓰는 앱은 가까이에.";
+"Choose which icons to hide" = "숨길 아이콘을 골라보세요";
+"Your apps in one small box" = "작은 박스에 모인 앱";
+"Option-click the box icon to open Box UI. Click an app to bring its window forward, or right-click to open its menu when supported." = "Option 키를 누른 채 박스 아이콘을 클릭하면 Box UI가 열립니다. 앱을 클릭해 창을 열거나, 우클릭해 메뉴를 사용할 수 있습니다. 앱에 따라 지원 여부가 다릅니다.";
+"MenuBox box icon" = "MenuBox 박스 아이콘";
+"Make MenuBox your own" = "나에게 맞게 설정하세요";
+"Right-click the tape marker to open Settings. Adjust auto-hide in Display and key combinations in Shortcuts. Find this guide and the offline terms in Help & Support." = "막대 아이콘을 우클릭해 설정을 여세요. 표시에서 자동 숨김을, 단축키에서 키 조합을 바꿀 수 있습니다. 도움말 및 지원에서 이 가이드와 앱에 포함된 약관을 볼 수 있습니다.";
+"MenuBox settings" = "MenuBox 설정";
+"Icons to hide on the left, then the tape marker, box icon and visible icons on the right." = "왼쪽에는 숨길 아이콘, 그 오른쪽에는 막대 아이콘, 박스 아이콘과 계속 표시할 아이콘이 있습니다.";
+"Hold ⌘ and drag the tape marker to the right of the icons you want to hide. The icons to its left belong in MenuBox." = "⌘ 키를 누른 채 막대 아이콘을 숨기려는 아이콘들의 오른쪽으로 드래그하세요. 막대 왼쪽의 아이콘들이 MenuBox에 들어갑니다.";
+"By default, click the box icon to show or hide icons, and right-click it to open Box UI. On macOS 27, the tape marker hides along with your icons." = "기본 설정에서는 박스를 클릭해 아이콘을 숨기거나 표시하고, 우클릭해 Box UI를 엽니다. macOS 27에서는 막대도 함께 숨겨집니다.";
+"Getting Started" = "시작하기";
+"MenuBox guide" = "MenuBox 사용 가이드";
+"Review icon placement, permissions and optional crash reports." = "아이콘 배치, 권한과 선택적 충돌 보고를 다시 안내합니다.";
+"Show Guide…" = "가이드 보기…";
+"Preview only. No real agreement is recorded." = "테스트 미리보기입니다. 실제 약관 동의는 기록되지 않습니다.";
+"MenuBox now asks for explicit agreement to these terms before use. The app remains free under GPL-3.0-only with its existing brand policy. Crash reporting and macOS permissions are separate choices." = "MenuBox를 사용하기 전에 이용약관에 명시적으로 동의해 주세요. 앱은 기존 브랜드 정책과 GPL-3.0-only에 따라 계속 무료로 제공됩니다. 충돌 보고와 macOS 권한은 별도로 선택합니다.";
+"Retry loading the terms or quit MenuBox. App features have not started." = "이용약관을 다시 불러오거나 MenuBox를 종료해 주세요. 앱 기능은 아직 시작되지 않았습니다.";
+"Retry" = "다시 시도";

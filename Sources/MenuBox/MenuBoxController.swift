@@ -3,6 +3,7 @@
 
 import AppKit
 import MacAppSettings
+import MacAppOnboarding
 import MacAppCore
 import MacAppMainMenu
 import ApplicationServices
@@ -84,6 +85,12 @@ final class MenuBoxController: NSObject {
 
     private lazy var boxWindowController = BoxWindowController(settingsStore: store)
     private var settingsWindowController: SettingsWindowController?
+    private var onboarding: MenuBoxOnboarding?
+    private let agreement: TermsAgreementModel
+    private let onReady: () -> Void
+    private var didStart = false
+    private var hasPresentedSetup = false
+    private var suppressInitialPermissionSetup = false
 
     private var statusItem: NSStatusItem?
     private var tapeItem: NSStatusItem?
@@ -138,8 +145,11 @@ final class MenuBoxController: NSObject {
     private var isStopping = false
 
     @MainActor
-    init(updates: UpdateSettingsModel, crashPreference: CrashReportingPreference? = nil) {
+    init(updates: UpdateSettingsModel, agreement: TermsAgreementModel,
+         crashPreference: CrashReportingPreference? = nil, onReady: @escaping () -> Void) {
         self.updates = updates
+        self.agreement = agreement
+        self.onReady = onReady
         self.crashPreference = crashPreference
         super.init()
     }
@@ -154,7 +164,15 @@ final class MenuBoxController: NSObject {
     }
 
     @MainActor
+    func prepareForLaunch() {
+        if showOnboardingIfNeeded() { hasPresentedSetup = true }
+        else if agreement.allowsAppUse { onReady() }
+    }
+
+    @MainActor
     func start() {
+        guard agreement.allowsAppUse, !didStart else { return }
+        didStart = true
         NSLog("[MenuBox] Accessibility trusted=%d", ClickForwarder.accessibilityTrusted)
         boxWindowController.onForwardedClick = { [weak self] click, button in
             self?.handleBoxIconClick(click: click, button: button)
@@ -194,16 +212,8 @@ final class MenuBoxController: NSObject {
                 self?.refreshKeyboardShortcuts()
             }
 
-        if MenuBarHidingCompatibility.supportsSpacer {
-            DispatchQueue.main.async { [weak self] in self?.hideHiddenIcons() }
-        } else if usesNativeHiding {
-            hideWhenPermissionsReady = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                guard let self, self.hideWhenPermissionsReady else { return }
-                self.permissions.refresh()
-                if self.permissions.snapshot.isReady { self.hideHiddenIcons() }
-            }
-        }
+        // Setup has finished or was deferred after agreement; features may now start.
+        startAutomaticHiding()
 
         startProxyTargetCacheWarmup()
         startProxyTargetPeriodicRefresh()
@@ -260,14 +270,31 @@ final class MenuBoxController: NSObject {
             self.autoHideTimer?.invalidate()
             self.autoHideTimer = nil
             self.boxWindowController.close()
-            self.openSettings(tab: .permissions)
+            if !self.suppressInitialPermissionSetup, self.onboarding?.isVisible != true {
+                self.openSettings(tab: .permissions)
+            }
         }
         permissions.onAccessRestored = { [weak self] in
             guard let self else { return }
             self.startProxyTargetCacheWarmup()
             if self.hideWhenPermissionsReady { self.hideHiddenIcons() }
         }
+        suppressInitialPermissionSetup = hasPresentedSetup
         permissions.start()
+        suppressInitialPermissionSetup = false
+    }
+
+    private func startAutomaticHiding() {
+        if MenuBarHidingCompatibility.supportsSpacer {
+            DispatchQueue.main.async { [weak self] in self?.hideHiddenIcons() }
+        } else if usesNativeHiding {
+            hideWhenPermissionsReady = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self, self.hideWhenPermissionsReady else { return }
+                self.permissions.refresh()
+                if self.permissions.snapshot.isReady { self.hideHiddenIcons() }
+            }
+        }
     }
 
     private func configureMainStatusItem() {
@@ -358,7 +385,7 @@ final class MenuBoxController: NSObject {
     }
 
     fileprivate func handleKeyboardShortcut(id: UInt32) {
-        guard store.settings.shortcutsEnabled else { return }
+        guard didStart, store.settings.shortcutsEnabled else { return }
 
         switch id {
         case MenuBoxHotKey.menuBarIconID:
@@ -440,6 +467,7 @@ final class MenuBoxController: NSObject {
     }
 
     func stop() {
+        guard didStart else { return }
         isStopping = true
         hiddenMenuTask?.cancel()
         try? NativeMenuBarPlacement.restore()
@@ -676,6 +704,31 @@ final class MenuBoxController: NSObject {
 
     @MainActor
     private func presentSettings(tab: SettingsTab?) {
+        guard didStart, agreement.allowsAppUse else { prepareForLaunch(); return }
+        ensureSettingsController().show(tab: tab)
+    }
+
+    @MainActor
+    func reopen() {
+        guard didStart else { prepareForLaunch(); return }
+        if !showOnboardingIfNeeded() { presentSettings(tab: nil) }
+    }
+
+    @MainActor @discardableResult
+    private func showOnboardingIfNeeded(replay: Bool = false) -> Bool {
+        if onboarding == nil {
+            onboarding = MenuBoxOnboarding(permissions: ensureSettingsController().permissionModel,
+                                          agreement: agreement, crashPreference: crashPreference,
+                                          onClose: { [weak self] in
+                guard let self, self.agreement.allowsAppUse else { return }
+                self.onReady()
+            })
+        }
+        return onboarding?.showIfNeeded(replay: replay) == true
+    }
+
+    @MainActor
+    private func ensureSettingsController() -> SettingsWindowController {
         if settingsWindowController == nil {
             let actions = SettingsActions(
                 showHiddenIcons: { [weak self] in self?.showHiddenIcons() },
@@ -690,10 +743,11 @@ final class MenuBoxController: NSObject {
             )
             settingsWindowController = SettingsWindowController(
                 store: store, permissions: permissions, updates: updates, actions: actions,
-                crashPreference: crashPreference
+                crashPreference: crashPreference,
+                showOnboarding: { [weak self] in self?.showOnboardingIfNeeded(replay: true) }
             )
         }
-        settingsWindowController?.show(tab: tab)
+        return settingsWindowController!
     }
 
     private func writeShortcut(_ shortcut: KeyboardShortcutSetting, target: MenuBoxShortcutTarget) throws {

@@ -71,6 +71,7 @@ final class SettingsWindowController {
     private let actions: SettingsActions
     private let language: AppLanguageSettings?
     private let crashPreference: CrashReportingPreference?
+    private let showOnboarding: (() -> Void)?
     private var observations = Set<AnyCancellable>()
 
     private lazy var identity = SettingsIdentity(bundle: .main, icon: NSApp.applicationIconImage,
@@ -113,9 +114,19 @@ final class SettingsWindowController {
             navigation: navigation, shortcuts: shortcuts, permissions: permissionModel,
             updates: updates, language: language, launchAtLogin: login, pages: pages,
             distribution: .direct, support: support, reset: reset,
-            supportContent: { AnyView(MenuBoxTermsSupportSection()) },
-            shortcutsContent: { AnyView(MenuBoxShortcutSettings(store: store)) }
-        ) {
+            supportContent: { [self] in AnyView(Group {
+                if let showOnboarding {
+                    SettingsSection(menuBoxLocalized("Getting Started")) {
+                        SettingsRow(menuBoxLocalized("MenuBox guide"),
+                                    detail: menuBoxLocalized("Review icon placement, permissions and optional crash reports.")) {
+                            Button(menuBoxLocalized("Show Guide…"), action: showOnboarding)
+                        }
+                    }
+                }
+                MenuBoxTermsSupportSection()
+            }) },
+            shortcutsContent: { [self] in AnyView(MenuBoxShortcutSettings(store: store)) }
+        ) { [self] in
             if let crashPreference { DiagnosticsSettingsSection(preference: crashPreference) }
         }
     }
@@ -123,13 +134,14 @@ final class SettingsWindowController {
     init(store: SettingsStore, permissions: PermissionStore, updates: UpdateSettingsModel,
          actions: SettingsActions, login: LaunchAtLoginModel? = nil,
          permissionModel: PermissionSettingsModel? = nil, language: AppLanguageSettings? = nil,
-         crashPreference: CrashReportingPreference? = nil) {
+         crashPreference: CrashReportingPreference? = nil, showOnboarding: (() -> Void)? = nil) {
         self.store = store
         self.permissions = permissions
         self.updates = updates
         self.actions = actions
         self.language = language
         self.crashPreference = crashPreference
+        self.showOnboarding = showOnboarding
         self.login = login ?? LaunchAtLoginModel()
         shortcuts = Self.makeShortcuts(store: store, actions: actions)
         self.permissionModel = permissionModel ?? Self.makePermissions(snapshot: permissions.snapshot)

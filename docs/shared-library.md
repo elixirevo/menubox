@@ -2,8 +2,8 @@
 
 MenuBox consumes the local `../tools/library` checkout of
 [MacAppEssentials](https://github.com/elixirevo/mac-app-essentials). The integration
-uses v0.3.0 plus the subsequent development updates and settings content extensions
-at revision `a5771978e8f196aa8f1712a96d076c1c9dc0e371`. This is not a new tagged release.
+uses the **v0.4.0** tag at revision
+`c1105892a3b29800dd6ed7842d35a2acef092bee`.
 Keep the repository's `Integrations` directory beside its base package; the
 Sparkle adapter references that same package by relative path.
 
@@ -16,7 +16,8 @@ Sparkle adapter references that same package by relative path.
   Language changes take effect after restarting; Box UI's existing operational
   messages are still English.
 - `MacAppLifecycle` validates `LSUIElement=true`, keeps MenuBox running when its
-  windows close and opens settings on Finder/Spotlight reopen. Settings never
+  windows close and resumes unfinished onboarding on Finder/Spotlight reopen,
+  otherwise opening settings. Settings never
   switches the app to regular/Dock mode.
 - `MacAppMainMenu` supplies standard app/edit/window commands and Settings (`⌘,`).
 - `MacAppUpdatesSparkle` owns the single updater and its shared settings model.
@@ -69,8 +70,7 @@ Reset continues to restore only MenuBox settings after confirmation and retains
 language, login registration, update preferences, crash-reporting consent and OS
 permissions.
 
-MacAppOnboarding remains optional and is not linked; MenuBox retains its existing
-permission-guidance startup flow. MenuBox now owns Korean and English terms in
+MenuBox owns Korean and English terms in
 `Sources/MenuBox/Resources/{ko,en}.lproj/TermsOfUse.txt`, adapted from the package's
 legal template. Settings → Help & Support → Read Terms opens a read-only sheet with selectable
 full text and a native Save panel. There is no separate legal-document sidebar page. It loads the current
@@ -95,9 +95,10 @@ Template source: `../tools/library/docs/legal/` at revision 98735a0. Checked aga
 [GNU GPL version 3](https://www.gnu.org/licenses/gpl-3.0.html) and the template's
 [official Korean liability/dispute provisions](https://law.go.kr/LSW/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1025032399).
 Preserve prior terms in version control when changing the document and version.
-The newly available TermsAgreement module remains unlinked: merely reading or
-running this GPL app does not require a new acceptance gate. The privacy templates
-are authoring resources, not a completed MenuBox privacy policy.
+The user subsequently requested mandatory explicit agreement on 2026-10-05;
+the app now uses the package agreement module as described below. Reading the
+support sheet remains separate from acceptance. The privacy templates are
+authoring resources, not a completed MenuBox privacy policy.
 
 The bundle also includes LICENSE, LICENSING.md, TRADEMARKS.md and upstream notices
 under Contents/Resources/Legal, opened by Show License Files. The bundle script
@@ -178,7 +179,7 @@ crash test with a signed build.
 
 ## Build and verification
 
-### Latest package update verification (2026-10-04)
+### Previous package update verification (2026-10-04)
 
 Settings relocation follow-up: MenuBox 195 tests and MacAppEssentials 79 tests
 passed (two existing opt-in MenuBox tests skipped). The ARM64 `dist/MenuBox.app`
@@ -205,8 +206,8 @@ user preferences were not changed by these previews.
 - UI-only copies and exported verification text are under
   `artifacts/support-ui-verification/`. The final app remains in `dist/`.
 
-The app bundle script includes MenuBox, MacAppSettings and MacAppMainMenu resource
-bundles and verifies Mach-O minimum OS 13.0 and the selected SDK version. It keeps
+The app bundle script includes MenuBox, MacAppSettings, MacAppMainMenu and
+MacAppOnboarding resource bundles and verifies Mach-O minimum OS 13.0 and the selected SDK version. It keeps
 the existing Sparkle framework embedding and signing flow.
 
 ```sh
@@ -232,3 +233,86 @@ custom terms page, minimizing/restoring, closing/reopening and retaining
 the accessory activation policy. Preview service states are fixtures; real OS
 permissions, login registration and update installation require separate manual
 verification with a properly signed app.
+
+
+## First-run onboarding and mandatory terms (2026-10-05)
+
+`MacAppOnboarding` v0.4.0 is linked and its resource bundle is copied by
+`build_app.sh`. The guide covers welcome, marker placement, Box UI, settings
+(step 4), the full bundled terms (step 5), OS-specific permissions and optional
+Sentry crash reports (only when configured). There are eight steps on macOS 27
+with diagnostics configured, seven without the Full Disk Access step. Native
+artwork preserves the mirrored box/tape direction in both appearances.
+
+The user's explicit 2026-10-05 instruction supersedes the former read-only
+onboarding policy. `.terms(TermsAgreementModel)` now requires an unchecked
+acknowledgement followed by Agree and Continue. Reading, scrolling, checking
+alone, closing, and prior onboarding completion never create acceptance.
+Closing or pressing Escape before acceptance quits, even from an earlier guide
+page. Afterwards, permissions and crash reporting remain separate choices;
+closing optional setup does not revoke the accepted terms.
+
+`MenuBoxTerms.agreementDocument()` uses the same complete localized resources as
+Help & Support. The English/Korean documents follow the package legal templates
+and existing MenuBox adaptations: free distribution, confirmed operator/contact,
+GPL and brand policy, actual permissions, optional Sentry and Sparkle behavior.
+Their text, version 1.1 and effective date 2026-10-04 are unchanged. No operator
+address or public URL was invented. The Help & Support sheet remains read-only.
+
+Acceptance is stored independently at `MenuBox.Terms.Acceptance`, containing the
+stable document ID, version, language, acceptance date and full-text SHA-256.
+Completion stays at `MenuBox.Onboarding.CompletedVersion` (flow version 1).
+Only Finish writes completion; Help & Support → Show Guide replays without
+clearing or downgrading completion or recording another acceptance. General
+Restore Defaults preserves both terms acceptance and crash-report preference.
+
+Completed users with missing or different-version acceptance see the standalone
+`TermsAgreementWindowController`, without repeating the entire tour. Both flows
+share the same model/store. A terms version change requires fresh explicit
+acceptance; language changes alone do not. Failed/corrupt reads and failed writes
+remain gated and expose the package's retry/quit behavior. Missing legal resources
+show a retry/quit alert. Never silently delete or fabricate acceptance records.
+
+`MenuBoxLaunchGate` starts services only after successful persisted acceptance,
+once per launch. Before then, MenuBox does not install status items, menu commands,
+global shortcuts, permission polling, automatic hiding, updater or Sentry SDK.
+Settings/reopen route back to the required window, including when minimized.
+Restoring previously changed system state on startup/termination remains allowed.
+Configuration is read for the consent UI without initializing Sentry. Reporting
+still depends on its separate consent at process launch; toggles take effect next
+launch. Terms acceptance never enables it automatically.
+
+Use `--menubox-onboarding-preview` for isolated UI verification, with
+`--preview-step N`, `--preview-light`, `--preview-dark`, `--preview-smoke`, or
+`--preview-terms-update` for the standalone agreement. Pass
+`-MacAppLibrary.language ko` or `en` for a process-only language override.
+The preview is visibly marked nonbinding, uses in-memory receipt/completion,
+inert permission actions, and starts no updater, SDK, status items or shortcuts.
+Step selection cannot skip an unaccepted terms page. Only this explicit fixture
+may simulate acceptance during tests; real user acceptance is never automated.
+The settings preview uses an accepted in-memory fixture for replay.
+
+## Earlier v0.4.0 validation
+
+Before the mandatory-consent change, local build 1.5.0 (151) passed 200 app tests
+(198 passed, two existing opt-in checks skipped), 84 library tests and isolated
+onboarding/settings smokes. This historical result predates the new gate.
+
+## Mandatory-consent validation (2026-10-05)
+
+- App suite: 204 tests, 202 passed and two existing opt-in checks skipped.
+  Coverage includes no consent from completion/checking alone, independent
+  completion and diagnostics choices, reset preserving receipts, corrupt/wrong
+  version/failed persistence keeping services blocked, and once-only startup.
+- Isolated onboarding smoke: quit before acceptance, no implicit receipt,
+  acknowledgement reset on reopen, minimized window restore, explicit fixture
+  acceptance, optional permissions/diagnostics and accessory policy passed.
+  Existing seven-page settings smoke also passed.
+- Native UI: Korean/dark step 4 is settings, step 5 shows full terms with unchecked
+  acknowledgement and disabled Agree and Continue; explicitly labeled in-memory
+  acceptance advances to the permission step. English/light standalone terms show
+  the same gate and Escape quits. Real consent was not accepted by automation.
+- Local ARM64 build 1.5.0 (152): `dist/MenuBox.app`. Developer ID signature,
+  bundled terms/legal resources, SDK/minimum OS and matching dSYM checks passed.
+  Screenshots are diagnostic artifacts in `artifacts/terms-consent-qa/`.
+  No public release was created.
