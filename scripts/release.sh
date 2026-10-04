@@ -65,7 +65,8 @@ if [[ "$PHASE" == "prepare" ]]; then
 fi
 
 python3 scripts/validate_release.py --dist "$DIST_DIR" --version "$APP_VERSION" \
-  --account "$SPARKLE_KEY_ACCOUNT" --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG"
+  --account "$SPARKLE_KEY_ACCOUNT" --repository "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" \
+  --upload-symbols
 cmp "$ROOT_DIR/homebrew/Casks/menubox.rb" "$TAP_DIR/Casks/menubox.rb"
 bash scripts/audit_cask.sh "$TAP_DIR"
 

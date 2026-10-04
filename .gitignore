@@ -8,6 +8,7 @@ artifacts
 # Local build outputs
 .build/
 build/
+__pycache__/
 
 # Generated compatibility icons (source: menubox.icon).
 /Resources/MenuBox.icns

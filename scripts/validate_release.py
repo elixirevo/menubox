@@ -8,12 +8,13 @@ from pathlib import Path
 import subprocess
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
+from sentry_symbols import matching_symbols, upload_symbols
 
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 NS = {"s": SPARKLE}
 
 
-def validate_bundle(dmg: Path, arch: str, build: int, expected: dict) -> None:
+def validate_bundle(dmg: Path, arch: str, build: int, expected: dict):
     mounted = plistlib.loads(subprocess.check_output([
         "hdiutil", "attach", "-readonly", "-nobrowse", "-plist", str(dmg)
     ]))
@@ -30,11 +31,14 @@ def validate_bundle(dmg: Path, arch: str, build: int, expected: dict) -> None:
         subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
         subprocess.run(["xcrun", "stapler", "validate", str(app)], check=True)
         subprocess.run(["spctl", "--assess", "--type", "execute", str(app)], check=True)
+        return matching_symbols(app, dmg.parent / "symbols", arch,
+                                expected["CFBundleShortVersionString"], build)
     finally:
         subprocess.run(["hdiutil", "detach", str(mount)], check=True)
 
 
-def validate(dist: Path, version: str, account: str, repository: str, tag: str) -> None:
+def validate(dist: Path, version: str, account: str, repository: str, tag: str,
+             upload: bool = False) -> None:
     root = Path(__file__).resolve().parent.parent
     plist = plistlib.loads((root / "Resources/Info.plist").read_bytes())
     assert plist["CFBundleShortVersionString"] == version
@@ -51,6 +55,7 @@ def validate(dist: Path, version: str, account: str, repository: str, tag: str) 
     assert len(items) == 2, "Both architectures must be offered"
     builds = {}
     checksums = []
+    symbols = []
     cask = (root / "homebrew/Casks/menubox.rb").read_text()
     assert f'version "{version}"' in cask
     for item in items:
@@ -77,7 +82,7 @@ def validate(dist: Path, version: str, account: str, repository: str, tag: str) 
         checksums.append(f"{digest}  {name}")
         subprocess.run(["codesign", "--verify", "--strict", str(dmg)], check=True)
         subprocess.run(["xcrun", "stapler", "validate", str(dmg)], check=True)
-        validate_bundle(dmg, arch, builds[arch], plist)
+        symbols.append(validate_bundle(dmg, arch, builds[arch], plist))
     assert builds["arm64"] > builds["x86_64"] > 111, "ARM must outrank the Intel/Rosetta fallback"
     assert set((dist / "SHA256SUMS.txt").read_text().splitlines()) == set(checksums)
     legacy = ET.parse(dist / f"appcast-{version}/appcast.xml").findall("channel/item")
@@ -85,6 +90,8 @@ def validate(dist: Path, version: str, account: str, repository: str, tag: str) 
     assert int(legacy[0].findtext("s:version", namespaces=NS)) > 111
     assert legacy[0].findtext("link") == f"https://github.com/{repository}/releases/tag/{tag}"
     print("Verified signed feed, both update signatures, architecture routing, notarization, checksums, and legacy notice.")
+    if upload:
+        upload_symbols(symbols)
 
 
 if __name__ == "__main__":
@@ -94,5 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--account", default="menubox")
     parser.add_argument("--repository", default="elixirevo/menubox")
     parser.add_argument("--tag", required=True)
+    parser.add_argument("--upload-symbols", action="store_true",
+                        help="Require Sentry upload and server confirmation before returning success")
     args = parser.parse_args()
-    validate(args.dist, args.version, args.account, args.repository, args.tag)
+    validate(args.dist, args.version, args.account, args.repository, args.tag, args.upload_symbols)

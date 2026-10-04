@@ -1,6 +1,6 @@
 # Releasing MenuBox
 
-Public releases require a **Developer ID Application** signing identity, the `menubox` notarytool keychain profile, and the Sparkle private key stored under account `menubox`. Private keys and credentials must never be committed. `sparkle-public-key.txt` and `Resources/Info.plist` contain only the public key.
+Public releases require a **Developer ID Application** signing identity, the `menubox` notarytool keychain profile, the Sparkle private key stored under account `menubox`, and Sentry CLI with upload credentials (see below). Private keys and credentials must never be committed. `sparkle-public-key.txt` and `Resources/Info.plist` contain only the public key.
 
 ## Prepare and publish
 
@@ -20,7 +20,7 @@ Public releases require a **Developer ID Application** signing identity, the `me
    RELEASE_PHASE=publish bash scripts/release.sh
    ```
 
-   Publication validates the artifacts again, pushes the commit and tag, creates a draft with all assets, publishes it as latest, and commits/pushes the tap. It refuses to overwrite an existing release. Keep `dist` until remote downloads, both appcast URLs and the Homebrew migration have been verified.
+   Publication validates the artifacts and Sentry symbols again, pushes the commit and tag, creates a draft with all assets, publishes it as latest, and commits/pushes the tap. It refuses to overwrite an existing release. Keep `dist` until remote downloads, both appcast URLs and the Homebrew migration have been verified; archive the matching dSYMs with each release before cleaning build outputs.
 
 ## Update feeds and the 1.2 transition
 
@@ -47,20 +47,60 @@ That file contains the private key in plaintext; the destination must be protect
 `build_app.sh` archives `dist/symbols/MenuBox-<version>-<build>-<arch>.app.dSYM`
 and checks its UUID against the shipped executable. Keep both architectures'
 matching artifacts with each release. They remain outside the distributed app.
-Upload each archive before publishing, using the Sentry CLI and CI's secret
-`SENTRY_AUTH_TOKEN` (never put this token in the command, app or repository):
+Install the official Sentry CLI once on the release machine (tested with 3.8.0):
 
 ```sh
-sentry-cli debug-files upload --org elixirevo --project menubox \
-  dist/symbols/MenuBox-<version>-<build>-<arch>.app.dSYM
+brew install getsentry/tools/sentry-cli
 ```
 
-The organization/project are MenuBox's app-owned deployment configuration in
+Both `release.sh` phases (`prepare` and `publish`, including `SKIP_BUILD=1`)
+automatically run the symbol gate through `validate_release.py --upload-symbols`:
+
+1. Mount each distribution DMG read-only and match its executable UUID,
+   architecture, version and build to the corresponding archived dSYM.
+2. Check the bundled Sentry configuration against the source configuration.
+3. Upload only those matching dSYMs, wait for server processing, then query
+   Sentry to confirm each UUID/architecture has debug information.
+
+Missing/mismatched symbols, missing CLI/credentials, upload/processing failures,
+and failed server confirmation stop the script before any tag, push or GitHub
+publication. Re-running is safe: the CLI skips files already uploaded. There is
+no release-time bypass. Standalone `validate_release.py` without
+`--upload-symbols` checks local matches without contacting Sentry.
+
+Credentials come from CI's secret `SENTRY_AUTH_TOKEN`, or the existing
+MacAppEssentials developer profile at
+`~/Library/Application Support/MacAppEssentials/sentry.json` and its login Keychain
+item. The profile organization must match MenuBox. CI needs no local profile;
+`SENTRY_API_BASE` optionally selects `https://us.sentry.io/api/0/` or
+`https://de.sentry.io/api/0/` (default: `https://sentry.io/api/0/`). The token must
+have access to the project with `project:write` permission. Inject it through the
+CI secret store; never put it in command arguments, the app, a file in the
+repository, or logs. The wrapper passes it only in the CLI child environment and
+uses it internally for the verification API. Existing setup instructions are in
+[`MacAppEssentials/docs/sentry-setup.md`](../../tools/library/docs/sentry-setup.md).
+
+The organization/project come from MenuBox's app-owned deployment configuration in
 `Sources/MenuBox/Resources/SentryConfiguration.json`, not shared-library defaults.
 Project provisioning does not upload dSYMs. The local build does not contact
-Sentry or upload symbols automatically. Validate received crash release/dist,
-UUIDs and resolved frames with a separately approved development-project crash
-test; a successful build or management API call is not that validation.
+Sentry or upload symbols automatically. To repair symbols for a particular local
+app without building or publishing a release:
+
+```sh
+python3 -B scripts/sentry_symbols.py --app dist/MenuBox.app \
+  --symbols dist/symbols --arch arm64
+```
+
+This validates that app's identity and UUID before uploading. Use `x86_64` for an
+Intel app. Server confirmation proves symbol availability; resolved frames still
+require a received crash event. Uploading symbols does not itself trigger a crash
+or guarantee reprocessing of older events.
+
+Run the offline release-gate tests with
+`python3 -B -m unittest discover -s scripts/tests -v`.
+
+References: [Sentry debug-file CLI](https://docs.sentry.io/cli/dif/) and
+[debug-file verification API](https://docs.sentry.io/api/projects/list-a-projects-debug-information-files/).
 
 ## GPL source and brand notices
 
