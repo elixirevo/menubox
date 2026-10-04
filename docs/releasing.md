@@ -61,3 +61,30 @@ Project provisioning does not upload dSYMs. The local build does not contact
 Sentry or upload symbols automatically. Validate received crash release/dist,
 UUIDs and resolved frames with a separately approved development-project crash
 test; a successful build or management API call is not that validation.
+
+## GPL source and brand notices
+
+MenuBox now uses GPL-3.0-only for project-owned material, with the section 7
+terms in TRADEMARKS.md. The unchanged GPL text, licensing scope, brand policy and
+third-party notices are copied and checked by build_app.sh before signing.
+
+For each public binary, offer its exact Corresponding Source next to the binary
+with no additional charge (GPL section 6(d)). Include the matching MenuBox source,
+Package.resolved, build scripts and required non-system dependency source or
+precisely identified, accessible source locations. Include the actual
+MacAppEssentials checkout used, including any changes; the MenuBox GitHub source
+archive alone does not include this local path dependency. Retain copyright and
+license notices, and document how to build and run a modified copy using one's own
+local signing identity. Do not publish signing keys or management credentials.
+
+The current MacAppEssentials checkout has no explicit license notice. Resolve its
+redistribution grant before publishing a combined GPL binary. Sentry and Sparkle
+upstream license texts (including Sparkle's external notices) are retained in
+THIRD_PARTY_NOTICES.txt; this is not a blanket license grant for other components.
+A successful local build or signature check is not a completed release/source
+compliance check. This licensing change does not publish a release.
+
+The terms 1.0 draft was prepared locally and revised to 1.1 for this licensing
+change before publication. Prior public MIT versions retain their existing grants.
+A third-party app should use its own branding and identifiers, update feed and
+crash-reporting project, while preserving required copyright/license notices.

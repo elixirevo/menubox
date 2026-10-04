@@ -66,6 +66,13 @@ for bundle in MenuBox_MenuBox MacAppEssentials_MacAppSettings MacAppEssentials_M
   ditto "$BIN_PATH/$bundle.bundle" "$RESOURCES_DIR/$bundle.bundle"
 done
 
+# Ship the unchanged GPL and project/third-party notices with every app bundle.
+mkdir -p "$RESOURCES_DIR/Legal"
+for notice in LICENSE LICENSING.md TRADEMARKS.md THIRD_PARTY_NOTICES.txt; do
+  cp "$ROOT_DIR/$notice" "$RESOURCES_DIR/Legal/$notice"
+  cmp "$ROOT_DIR/$notice" "$RESOURCES_DIR/Legal/$notice"
+done
+
 
 # Sentry is statically linked; package its privacy resource without embedding
 # the static framework as a runtime dependency.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// MenuBox project-owned code. See LICENSE and TRADEMARKS.md for GPL section 7 terms.
+
 // Read-only macOS 27 menu bar diagnostics. Run with `swift tools/menu-bar-snapshot.swift`.
 // Never traverses app windows, menus, or document content.
 // Raw observations only: insideBar is rectangle containment, not proof of visibility.

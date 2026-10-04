@@ -2,7 +2,7 @@
 
 ![Platform](https://img.shields.io/badge/Platform-macOS-lightgrey.svg)
 ![Swift](https://img.shields.io/badge/Swift-5.0-orange.svg)
-![License](https://img.shields.io/badge/License-MIT-blue.svg)
+![License](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)
 
 <img src="./icon.png" alt="MenuBox Icon" width="160" />
 
@@ -200,4 +200,18 @@ Contributions are welcome. If you have ideas for new features, bug fixes, or imp
 
 ## 📄 License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+MenuBox project-owned material is licensed under **GNU GPL version 3 only**
+(`GPL-3.0-only`): see [LICENSE](LICENSE) and [licensing scope](LICENSING.md).
+Modification, redistribution and commercial use are allowed under the GPL;
+binary distributions must include access to their exact Corresponding Source.
+Third-party components retain their own licenses; see
+[third-party notices](THIRD_PARTY_NOTICES.txt).
+
+**MenuBox/elixirevo names, the MenuBox logo and app icon are not licensed for
+third-party product branding.** Use your own name and icon for a fork or repackaged
+app; retain required attribution and do not imply official endorsement. See the
+[brand policy and GPL section 7 terms](TRADEMARKS.md) for the applicable scope and
+lawful-reference exceptions. Earlier MIT grants are not retroactively withdrawn.
+
+The app bundles these documents under `Contents/Resources/Legal`, accessible from
+Settings → Help & Support → Read Terms → Show License Files.

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// MenuBox project-owned code. See LICENSE and TRADEMARKS.md for GPL section 7 terms.
+
 import Foundation
 
 /// Process lists are observations, not a guarantee of unique, live PIDs.
