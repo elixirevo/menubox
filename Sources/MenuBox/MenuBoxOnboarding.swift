@@ -56,7 +56,7 @@ final class MenuBoxOnboarding {
                 MenuBoxBoxGuide()
             },
             .guide(id: "settings", title: menuBoxLocalized("Make MenuBox your own"),
-                   message: menuBoxLocalized("Right-click the tape marker to open Settings. Adjust auto-hide in Display and key combinations in Shortcuts. Find this guide and the offline terms in Help & Support."),
+                   message: menuBoxLocalized("Right-click the tape marker to open Settings. Adjust auto-hide in Features and key combinations in Shortcuts. Find this guide and the offline terms in Help & Support."),
                    illustration: .init(Image(systemName: "slider.horizontal.3"),
                                        accessibilityLabel: menuBoxLocalized("MenuBox settings"))),
             .terms(agreement),

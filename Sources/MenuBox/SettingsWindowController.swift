@@ -11,7 +11,7 @@ func menuBoxLocalized(_ key: String) -> String {
     AppLocalizer.current.string(key, bundle: .module)
 }
 
-enum SettingsTab { case general, display, shortcuts, permissions, updates, support, terms, about }
+enum SettingsTab { case general, features, shortcuts, permissions, updates, support, terms, about }
 enum MenuBoxShortcutTarget { case menuBarIcon, boxUI }
 
 struct SettingsActions {
@@ -98,8 +98,9 @@ final class SettingsWindowController {
 
     private lazy var pages = try! SettingsPages([
         .builtIn(.general),
-        .custom(id: "display", title: menuBoxLocalized("Display"), symbol: "menubar.rectangle", color: .orange) { [store, actions] in
-            MenuBoxDisplaySettings(store: store, actions: actions)
+        .custom(id: "features", title: menuBoxLocalized("Features"), symbol: "display",
+                color: Color(red: 0.30, green: 0.68, blue: 0.94)) { [store, actions] in
+            MenuBoxFeaturesSettings(store: store, actions: actions)
         },
         .builtIn(.shortcuts), .builtIn(.permissions), .builtIn(.updates), .support,
         .builtIn(.about)
@@ -162,7 +163,7 @@ final class SettingsWindowController {
             let page: SettingsPageID
             switch tab {
             case .general: page = .builtIn(.general)
-            case .display: page = .custom("display")
+            case .features: page = .custom("features")
             case .shortcuts: page = .builtIn(.shortcuts)
             case .permissions: page = .builtIn(.permissions)
             case .updates: page = .builtIn(.updates)
@@ -250,7 +251,7 @@ private struct MenuBoxAutoHideAndBoxSettings: View {
     }
 }
 
-private struct MenuBoxDisplaySettings: View {
+private struct MenuBoxFeaturesSettings: View {
     @ObservedObject var store: SettingsStore
     let actions: SettingsActions
     var body: some View {

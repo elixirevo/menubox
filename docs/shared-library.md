@@ -2,8 +2,11 @@
 
 MenuBox consumes the local `../tools/library` checkout of
 [MacAppEssentials](https://github.com/elixirevo/mac-app-essentials). The integration
-uses the **v0.4.0** tag at revision
-`c1105892a3b29800dd6ed7842d35a2acef092bee`.
+targets revision `0e60a18241b7b48609d82d79a87275976fb72a3c` (after **v0.5.0**),
+which renames app-specific settings to Features and fixes first-time login-item
+registration. Local path dependencies also
+consume any uncommitted changes in that checkout; they are not pinned by
+`Package.resolved`.
 Keep the repository's `Integrations` directory beside its base package; the
 Sparkle adapter references that same package by relative path.
 
@@ -38,8 +41,10 @@ flags. Recording suspends MenuBox hotkeys; duplicate or rejected registrations
 leave the previous stored values intact. Individual shortcuts remain required;
 the Keyboard Shortcuts switch disables them together.
 
-Auto-hide and Box Icon controls are on Display, above the existing Box Icons and
-Menu Bar Icons sections. Enable shortcuts is on Keyboard Shortcuts, above the
+Auto-hide and Box Icon controls are on Features (기능), above the existing Box Icons
+and Menu Bar Icons sections. This custom page uses the `features` destination and
+the library example’s sky-blue `display` symbol. The onboarding settings guide
+uses the same localized tab name. Enable shortcuts is on Keyboard Shortcuts, above the
 shared recorder, supplied through `AppSettingsView(shortcutsContent:)`. General
 retains language, login behavior, diagnostics and reset. These are view changes;
 stored keys, defaults, shortcut registration and existing values are unchanged.
@@ -224,12 +229,13 @@ dist/MenuBox.app/Contents/MacOS/MenuBox --menubox-settings-preview --preview-lig
 dist/MenuBox.app/Contents/MacOS/MenuBox --menubox-settings-preview --preview-dark --preview-compact --preview-page permissions
 ```
 
-`terms` is a compatibility alias for `support`. Supported preview arguments are `general`, `display`, `shortcuts`, `permissions`,
+`terms` is a compatibility alias for `support`, and `display` aliases `features`.
+Supported preview arguments are `general`, `features`, `display`, `shortcuts`, `permissions`,
 `updates`, `support`, `terms`, and `about`. Use `-MacAppLibrary.language ko` or
 `-MacAppLibrary.language en` for a process-only language override. Preview data
 uses a temporary preferences suite removed on normal termination. The smoke
-checks all seven destinations, the legacy terms redirect, rejection of the removed
-custom terms page, minimizing/restoring, closing/reopening and retaining
+checks all seven destinations including the custom `features` route, the legacy
+terms redirect, rejection of the removed custom terms page, minimizing/restoring, closing/reopening and retaining
 the accessory activation policy. Preview service states are fixtures; real OS
 permissions, login registration and update installation require separate manual
 verification with a properly signed app.
@@ -323,3 +329,27 @@ Policy 1.0 is available in Korean and English from the existing legal-documents
 section in Help & Support. The read/save sheet records no acceptance and changes
 no reporting preference. Bundle creation verifies both policy translations.
 See [data-flow evidence and publication review](privacy.md).
+
+
+## Features settings update (2026-10-05)
+
+- Followed the post-v0.5.0 package guidance: Display → Features (표시 → 기능),
+  sky-blue monitor icon, and matching English/Korean onboarding copy.
+- Built `dist/MenuBox.app` as a local arm64 1.5.2 (158) Developer ID signed app;
+  signature verification, bundled resources and matching dSYM checks passed.
+  This is a local verification build, not a new public release.
+- The isolated settings smoke passed all seven pages and window lifecycle checks.
+  Visually checked Korean dark/compact and English light Features pages, including
+  the previous `--preview-page display` compatibility argument. Captures are in
+  `artifacts/features-settings/`. No real preferences were changed by the previews.
+- The local library checkout also contained pre-existing, uncommitted login-item
+  `.notFound` handling changes. This build consumes those changes through the path
+  dependency; this task did not edit or commit the library checkout.
+
+
+## 1.5.3 release source
+
+The login-item fix present during the Features preview is now committed as
+`0e60a18241b7b48609d82d79a87275976fb72a3c`. The 1.5.3 release packages this exact
+MacAppEssentials source with MenuBox. The release uses Intel build 159 and
+Apple Silicon build 160; the earlier local 1.5.2 (158) preview is not published.

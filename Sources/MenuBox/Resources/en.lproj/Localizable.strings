@@ -1,5 +1,5 @@
 "MenuBox Settings" = "MenuBox Settings";
-"Display" = "Display";
+"Features" = "Features";
 "Auto-hide" = "Auto-hide";
 "Auto-hide again" = "Auto-hide again";
 "Auto-hide delay" = "Auto-hide delay";
@@ -54,7 +54,7 @@
 "Option-click the box icon to open Box UI. Click an app to bring its window forward, or right-click to open its menu when supported." = "Option-click the box icon to open Box UI. Click an app to bring its window forward, or right-click to open its menu when supported.";
 "MenuBox box icon" = "MenuBox box icon";
 "Make MenuBox your own" = "Make MenuBox your own";
-"Right-click the tape marker to open Settings. Adjust auto-hide in Display and key combinations in Shortcuts. Find this guide and the offline terms in Help & Support." = "Right-click the tape marker to open Settings. Adjust auto-hide in Display and key combinations in Shortcuts. Find this guide and the offline terms in Help & Support.";
+"Right-click the tape marker to open Settings. Adjust auto-hide in Features and key combinations in Shortcuts. Find this guide and the offline terms in Help & Support." = "Right-click the tape marker to open Settings. Adjust auto-hide in Features and key combinations in Shortcuts. Find this guide and the offline terms in Help & Support.";
 "MenuBox settings" = "MenuBox settings";
 "Icons to hide on the left, then the tape marker, box icon and visible icons on the right." = "Icons to hide on the left, then the tape marker, box icon and visible icons on the right.";
 "Hold ⌘ and drag the tape marker to the right of the icons you want to hide. The icons to its left belong in MenuBox." = "Hold ⌘ and drag the tape marker to the right of the icons you want to hide. The icons to its left belong in MenuBox.";

@@ -69,7 +69,7 @@ final class MenuBoxSettingsPreview: NSObject, NSApplicationDelegate {
         let arguments = CommandLine.arguments
         if arguments.contains("--preview-dark") { NSApp.appearance = NSAppearance(named: .darkAqua) }
         if arguments.contains("--preview-light") { NSApp.appearance = NSAppearance(named: .aqua) }
-        let pages: [String: SettingsTab] = ["general": .general, "display": .display,
+        let pages: [String: SettingsTab] = ["general": .general, "features": .features, "display": .features,
             "shortcuts": .shortcuts, "permissions": .permissions, "updates": .updates,
             "support": .support, "terms": .terms, "about": .about]
         let page = arguments.firstIndex(of: "--preview-page").flatMap { index in
@@ -83,10 +83,11 @@ final class MenuBoxSettingsPreview: NSObject, NSApplicationDelegate {
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard let settings, let window = settings.host.window else { exit(1) }
-                for page in [SettingsTab.general, .display, .shortcuts, .permissions, .updates, .support, .about] {
+                for page in [SettingsTab.general, .features, .shortcuts, .permissions, .updates, .support, .about] {
                     settings.show(tab: page)
                     window.contentView?.layoutSubtreeIfNeeded()
                     guard window.isVisible, lifecycle.hasExpectedActivationPolicy else { exit(1) }
+                    if case .features = page, settings.navigation.pageID != .custom("features") { exit(1) }
                     if case .support = page, settings.navigation.pageID != .support { exit(1) }
                 }
                 // Legacy terms destinations now resolve to the one support page.
