@@ -28,7 +28,7 @@
 "Automatically Check for Updates" = "Automatically Check for Updates";
 "Quit MenuBox" = "Quit MenuBox";
 "Settings are unavailable." = "Settings are unavailable.";
-"Use Enable shortcuts in General to disable shortcuts." = "Use Enable shortcuts in General to disable shortcuts.";
+"Use Enable shortcuts in Keyboard Shortcuts to disable shortcuts." = "Use Enable shortcuts in Keyboard Shortcuts to disable shortcuts.";
 "This shortcut could not be registered. Choose another combination." = "This shortcut could not be registered. Choose another combination.";
 "Restore auto-hide, Box UI, click actions, shortcuts and saved ranges. Language, login items, updates and macOS permissions stay unchanged." = "Restore auto-hide, Box UI, click actions, shortcuts and saved ranges. Language, login items, updates and macOS permissions stay unchanged.";
 "Required to find menu bar icons and open their menus from Box UI. On macOS 27 this permission is called Device Control and Data Access." = "Required to find menu bar icons and open their menus from Box UI. On macOS 27 this permission is called Device Control and Data Access.";

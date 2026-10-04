@@ -26,7 +26,7 @@ enum MenuBoxSettingsError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable: return menuBoxLocalized("Settings are unavailable.")
-        case .shortcutRequired: return menuBoxLocalized("Use Enable shortcuts in General to disable shortcuts.")
+        case .shortcutRequired: return menuBoxLocalized("Use Enable shortcuts in Keyboard Shortcuts to disable shortcuts.")
         case .shortcutUnavailable: return menuBoxLocalized("This shortcut could not be registered. Choose another combination.")
         }
     }
@@ -113,9 +113,9 @@ final class SettingsWindowController {
             navigation: navigation, shortcuts: shortcuts, permissions: permissionModel,
             updates: updates, language: language, launchAtLogin: login, pages: pages,
             distribution: .direct, support: support, reset: reset,
-            supportContent: { AnyView(MenuBoxTermsSupportSection()) }
+            supportContent: { AnyView(MenuBoxTermsSupportSection()) },
+            shortcutsContent: { AnyView(MenuBoxShortcutSettings(store: store)) }
         ) {
-            MenuBoxGeneralSettings(store: store)
             if let crashPreference { DiagnosticsSettingsSection(preference: crashPreference) }
         }
     }
@@ -197,7 +197,20 @@ final class SettingsWindowController {
     }
 }
 
-private struct MenuBoxGeneralSettings: View {
+private struct MenuBoxShortcutSettings: View {
+    @ObservedObject var store: SettingsStore
+
+    var body: some View {
+        SettingsSection(menuBoxLocalized("Shortcuts")) {
+            SettingsToggle(menuBoxLocalized("Enable shortcuts"), isOn: Binding(
+                get: { store.settings.shortcutsEnabled },
+                set: { value in store.update { $0.shortcutsEnabled = value } }
+            ))
+        }
+    }
+}
+
+private struct MenuBoxAutoHideAndBoxSettings: View {
     @ObservedObject var store: SettingsStore
     private let delays: [Double] = [5, 10, 15, 20, 30, 60]
 
@@ -215,9 +228,6 @@ private struct MenuBoxGeneralSettings: View {
             SettingsPicker(menuBoxLocalized("Left click"), selection: binding(\.boxIconLeftClickAction)) { clickOptions }
             SettingsPicker(menuBoxLocalized("Right click"), selection: binding(\.boxIconRightClickAction)) { clickOptions }
         }
-        SettingsSection(menuBoxLocalized("Shortcuts")) {
-            SettingsToggle(menuBoxLocalized("Enable shortcuts"), isOn: binding(\.shortcutsEnabled))
-        }
     }
 
     private var clickOptions: some View {
@@ -232,6 +242,7 @@ private struct MenuBoxDisplaySettings: View {
     @ObservedObject var store: SettingsStore
     let actions: SettingsActions
     var body: some View {
+        MenuBoxAutoHideAndBoxSettings(store: store)
         SettingsSection(menuBoxLocalized("Box Icons")) {
             SettingsToggle(menuBoxLocalized("Show Box UI alerts"), isOn: Binding(
                 get: { store.settings.boxStatusMessagesEnabled },

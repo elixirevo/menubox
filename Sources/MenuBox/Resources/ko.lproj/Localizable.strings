@@ -28,7 +28,7 @@
 "Automatically Check for Updates" = "자동으로 업데이트 확인";
 "Quit MenuBox" = "MenuBox 종료";
 "Settings are unavailable." = "설정을 사용할 수 없습니다.";
-"Use Enable shortcuts in General to disable shortcuts." = "단축키를 끄려면 일반에서 단축키 사용을 해제하세요.";
+"Use Enable shortcuts in Keyboard Shortcuts to disable shortcuts." = "단축키를 끄려면 단축키 설정에서 단축키 사용을 해제하세요.";
 "This shortcut could not be registered. Choose another combination." = "단축키를 등록할 수 없습니다. 다른 조합을 선택하세요.";
 "Restore auto-hide, Box UI, click actions, shortcuts and saved ranges. Language, login items, updates and macOS permissions stay unchanged." = "자동 숨김, Box UI, 클릭 동작, 단축키와 저장된 범위를 초기화합니다. 언어, 로그인 항목, 업데이트 및 macOS 권한은 유지됩니다.";
 "Required to find menu bar icons and open their menus from Box UI. On macOS 27 this permission is called Device Control and Data Access." = "메뉴바 아이콘을 찾고 Box UI에서 해당 메뉴를 여는 데 필요합니다. macOS 27에서는 기기 제어 및 데이터 접근 권한으로 표시됩니다.";

@@ -35,7 +35,13 @@ replacing them with its standard status item would lose existing behavior.
 StatusBox migration. Shortcut conversion preserves physical key codes and modifier
 flags. Recording suspends MenuBox hotkeys; duplicate or rejected registrations
 leave the previous stored values intact. Individual shortcuts remain required;
-the General switch disables them together.
+the Keyboard Shortcuts switch disables them together.
+
+Auto-hide and Box Icon controls are on Display, above the existing Box Icons and
+Menu Bar Icons sections. Enable shortcuts is on Keyboard Shortcuts, above the
+shared recorder, supplied through `AppSettingsView(shortcutsContent:)`. General
+retains language, login behavior, diagnostics and reset. These are view changes;
+stored keys, defaults, shortcut registration and existing values are unchanged.
 
 Login controls read `SMAppService` directly instead of trusting the old stored
 Boolean. Restoring app defaults retains that legacy field and leaves login
@@ -173,6 +179,14 @@ crash test with a signed build.
 ## Build and verification
 
 ### Latest package update verification (2026-10-04)
+
+Settings relocation follow-up: MenuBox 195 tests and MacAppEssentials 79 tests
+passed (two existing opt-in MenuBox tests skipped). The ARM64 `dist/MenuBox.app`
+was rebuilt with signature/resource/SDK checks. Seven-page smoke passed. In the
+isolated Korean/dark preview, General no longer contained the moved controls;
+shortcut, auto-hide and Box UI toggles retained changes when switching pages.
+English/light and Korean/dark views were checked at minimum window size. Real
+user preferences were not changed by these previews.
 
 - The support integration and settings content extensions: MenuBox 195 tests passed,
   two existing opt-in checks skipped; MacAppEssentials 79 tests passed.
