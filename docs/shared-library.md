@@ -2,11 +2,11 @@
 
 MenuBox consumes the local `../tools/library` checkout of
 [MacAppEssentials](https://github.com/elixirevo/mac-app-essentials). The integration
-targets revision `0e60a18241b7b48609d82d79a87275976fb72a3c` (after **v0.5.0**),
-which renames app-specific settings to Features and fixes first-time login-item
-registration. Local path dependencies also
-consume any uncommitted changes in that checkout; they are not pinned by
-`Package.resolved`.
+targets **v0.5.1**, revision `b3e36a462ea6da4ba3d3272c08526765d9aca3c0`.
+This adds window foreground/focus recovery to the Features and first-time
+login-item registration updates already consumed by MenuBox 1.5.3.
+Local path dependencies also consume any uncommitted changes in that checkout;
+they are not pinned by `Package.resolved`.
 Keep the repository's `Integrations` directory beside its base package; the
 Sparkle adapter references that same package by relative path.
 
@@ -353,3 +353,37 @@ The login-item fix present during the Features preview is now committed as
 `0e60a18241b7b48609d82d79a87275976fb72a3c`. The 1.5.3 release packages this exact
 MacAppEssentials source with MenuBox. The release uses Intel build 159 and
 Apple Silicon build 160; the earlier local 1.5.2 (158) preview is not published.
+
+
+## v0.5.1 integration (2026-10-05)
+
+The local library checkout is at the clean `v0.5.1` tag. MenuBox already uses
+`MacAppSettings.SettingsWindowController`, `OnboardingWindowController`, and
+`TermsAgreementWindowController`; all three present through the updated
+`AppWindowPresentation`. No app-owned activation workaround or window-level
+change is needed. The shared presenter raises the requested window immediately
+and restores focus after activation/minimize restoration, keeping only the
+latest request and cancelling stale requests after dismissal or focus changes.
+The accessory/Dock policy and saved preferences remain unchanged.
+
+Rebuild the app to consume the local package update. Sparkle 2.10.0 and Sentry
+9.30.0 remain pinned in `Package.resolved`. This integration does not republish
+the existing MenuBox 1.5.3 release.
+
+Validation: MenuBox tests passed (206 executed, 2 skipped, no failures), and
+MacAppEssentials tests passed (93, including delayed activation/cancellation
+regressions). The signed local arm64 app is `dist/MenuBox.app`, version 1.5.3
+build 161, with matching dSYM and verified signature. Its isolated settings
+smoke passed seven destinations, minimize/restore, close/reopen and accessory
+policy checks. A separate preview bundle also opened onboarding from support
+and restored the minimized onboarding window to the front. The existing app
+in `/Applications` and its real preferences were left in place.
+
+
+## 1.5.4 release source
+
+MenuBox 1.5.4 packages MacAppEssentials 0.5.1 at
+`b3e36a462ea6da4ba3d3272c08526765d9aca3c0`, using Intel build 162 and Apple
+Silicon build 163. The preceding 1.5.3 (161) app was a local verification build.
+The already completed app, package and UI tests cover this source; this release
+changes only release metadata and documentation.
