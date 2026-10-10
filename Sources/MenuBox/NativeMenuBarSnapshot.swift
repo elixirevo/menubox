@@ -25,9 +25,10 @@ struct NativeMenuBarSnapshot {
     var applicationControlBundles: Set<String> = []
 
     enum Failure: LocalizedError {
-        case permission, incomplete, boundary, verification
+        case permission, incomplete, boundary, verification, restorationPending
         var errorDescription: String? {
             switch self {
+            case .restorationPending: return "macOS has not restored the menu bar icons yet. MenuBox is keeping the recovery information and will retry."
             case .permission: return "MenuBox needs Device Control and Data Access permission."
             case .incomplete: return "The menu bar layout is not ready. Please try again."
             case .boundary: return "The marker boundary differs between displays or cannot be resolved."
@@ -236,6 +237,18 @@ struct NativeMenuBarSnapshot {
                       previousEnd.map({ $0 <= actual.frame.minX + 1 }) ?? true else { throw Failure.verification }
                 previousEnd = actual.frame.maxX
             }
+        }
+    }
+
+    func verifyRestored(_ applications: Set<String>, systemItems: Set<String>,
+                        comparedTo before: NativeMenuBarSnapshot) throws {
+        guard !bars.isEmpty else { throw Failure.incomplete }
+        for bar in bars {
+            let reference = before.bars.first { $0.id == bar.id }
+            let expectedApps = reference.map { Set($0.items.map(\.bundle)).intersection(applications) } ?? applications
+            let expectedSystems = reference.map { Set($0.items.map(\.id)).intersection(systemItems) } ?? systemItems
+            guard expectedApps.isSubset(of: Set(bar.items.map(\.bundle))),
+                  expectedSystems.isSubset(of: Set(bar.items.map(\.id))) else { throw Failure.restorationPending }
         }
     }
 

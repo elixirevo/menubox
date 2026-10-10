@@ -6,6 +6,20 @@ import XCTest
 @testable import MenuBox
 
 final class NativeMenuBarSnapshotTests: XCTestCase {
+    func testRestoreRequiresTargetsOnEveryRemainingDisplay() throws {
+        let before = NativeMenuBarSnapshot(bars: [bar(-200), bar(0)], executables: [:])
+        var missing = bar(0)
+        missing.items.removeAll { $0.bundle == "one" }
+        let partial = NativeMenuBarSnapshot(bars: [bar(-200), missing], executables: [:])
+        XCTAssertThrowsError(try partial.verifyRestored(["one", "two"], systemItems: [], comparedTo: before))
+        XCTAssertNoThrow(try before.verifyRestored(["one", "two"], systemItems: [], comparedTo: before))
+        // A disconnected display is not a forever-pending restore.
+        let disconnected = NativeMenuBarSnapshot(bars: [bar(-200)], executables: [:])
+        XCTAssertNoThrow(try disconnected.verifyRestored(["one", "two"], systemItems: [], comparedTo: before))
+        XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: [], executables: [:])
+            .verifyRestored(["one"], systemItems: [], comparedTo: before))
+    }
+
     func testStandaloneAppleAppsUseCommonRouteWithoutBeingListed() throws {
         for bundle in ["com.apple.Passwords.MenuBarExtra", "com.apple.FutureApp.MenuBarExtra", "org.example.NewApp"] {
             var visible = bar(0)

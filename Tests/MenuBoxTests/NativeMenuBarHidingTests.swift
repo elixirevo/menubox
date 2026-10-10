@@ -26,6 +26,8 @@ final class NativeMenuBarHidingTests: XCTestCase {
         var appliedApplications = Set<String>()
         var temporaryApp: String?
         var onApply: (() -> Void)?
+        var restorationStalled = false
+        var finishedRestores = 0
 
         func snapshot() throws -> NativeMenuBarSnapshot {
             checks += 1
@@ -65,7 +67,7 @@ final class NativeMenuBarHidingTests: XCTestCase {
                 self.appliedApplications = plan.applicationKeys
                 self.applicationsHidden = true
                 self.onApply?()
-            }, restore: { self.restores += 1; self.applicationsHidden = false; self.temporaryApp = nil }, reapply: { _, plan in
+            }, restore: { self.restores += 1; self.applicationsHidden = self.restorationStalled; self.temporaryApp = nil }, reapply: { _, plan in
                 if self.reapplyFailures > 0 {
                     self.reapplyFailures -= 1
                     throw NativeMenuBarPreferences.Failure.concurrentChange
@@ -78,7 +80,7 @@ final class NativeMenuBarHidingTests: XCTestCase {
                 if self.extensionDenied { throw NativeMenuBarPreferences.Failure.shared("second") }
                 XCTAssertTrue(old.applicationKeys.isSubset(of: new.applicationKeys))
                 self.stageCount += 1
-            }, temporarilyReveal: { bundle, _ in self.temporaryApp = bundle }, prepare: {}, log: { _ in })
+            }, temporarilyReveal: { bundle, _ in self.temporaryApp = bundle }, finishRestore: { self.finishedRestores += 1 }, prepare: {}, log: { _ in })
             let hiding = NativeMenuBarHiding(backend: backend,
                 timing: .init(initial: initial, environment: 2_000_000, verification: verification, retries: retries))
             hiding.setMarkerHidden = {
@@ -96,6 +98,50 @@ final class NativeMenuBarHidingTests: XCTestCase {
             try await Task.sleep(nanoseconds: 2_000_000)
         }
         XCTFail("State did not settle", file: file, line: line)
+    }
+
+    func testMissingIconsKeepRecoveryAndMembershipUntilHostAcknowledgesRestore() async throws {
+        let bar = MenuBar(), hiding = bar.controller()
+        defer { hiding.stop() }
+        hiding.hide()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        bar.restorationStalled = true
+        XCTAssertTrue(hiding.show())
+        try await eventually { !hiding.isTransitioning }
+        XCTAssertTrue(hiding.isRestoring)
+        XCTAssertEqual(hiding.hiddenApplications, ["left"])
+        XCTAssertEqual(bar.finishedRestores, 0, "Do not discard the recovery journal on a successful preference write")
+        hiding.hide()
+        try await eventually { !hiding.isTransitioning }
+        XCTAssertEqual(bar.writes, 1, "An empty host must not replace the original section")
+        XCTAssertTrue(hiding.isRestoring)
+        bar.restorationStalled = false
+        bar.applicationsHidden = false
+        hiding.environmentChanged()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning && !hiding.isRestoring }
+        XCTAssertEqual(bar.finishedRestores, 1)
+        XCTAssertEqual(bar.writes, 2)
+        XCTAssertEqual(hiding.hiddenApplications, ["left"])
+    }
+
+    func testSleepDuringRestoreKeepsMembershipAndResumesVerification() async throws {
+        let bar = MenuBar(), hiding = bar.controller(verification: 20_000_000)
+        defer { hiding.stop() }
+        hiding.hide()
+        try await eventually { hiding.isHidden && !hiding.isTransitioning }
+        bar.restorationStalled = true
+        XCTAssertTrue(hiding.show())
+        hiding.suspend()
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertEqual(bar.finishedRestores, 0)
+        XCTAssertEqual(hiding.hiddenApplications, ["left"])
+        bar.restorationStalled = false
+        bar.applicationsHidden = false
+        hiding.resume()
+        try await eventually { !hiding.isRestoring }
+        XCTAssertEqual(bar.finishedRestores, 1)
+        XCTAssertTrue(hiding.hiddenApplications.isEmpty)
+        XCTAssertFalse(hiding.wantsHidden)
     }
 
     func testReadyLayoutHidesWithoutQuarterSecondDebounce() async {
@@ -279,8 +325,9 @@ final class NativeMenuBarHidingTests: XCTestCase {
         XCTAssertFalse(hiding.isHidden)
         XCTAssertFalse(bar.markerHidden)
         XCTAssertEqual(bar.writes, 1)
+        bar.unavailableCaptures = 0
         hiding.resume()
-        try await Task.sleep(nanoseconds: 10_000_000)
+        try await eventually { !hiding.isRestoring }
         XCTAssertFalse(hiding.isTransitioning)
     }
 

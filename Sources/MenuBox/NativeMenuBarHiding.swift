@@ -14,6 +14,9 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         var reapply: (NativeMenuBarSnapshot, MenuBarSectionPlanner.Plan) throws -> Void
         var stageExtension: ((NativeMenuBarSnapshot, MenuBarSectionPlanner.Plan, MenuBarSectionPlanner.Plan) throws -> Void)? = nil
         var temporarilyReveal: ((String, NativeMenuBarSnapshot) throws -> Void)? = nil
+        var finishRestore: (() throws -> Void)? = nil
+        var pendingApplications: (() -> Set<String>)? = nil
+        var hasPendingRestore: (() -> Bool)? = nil
         var prepare: (() async throws -> Void)?
         var log: ((String) -> Void)?
 
@@ -25,7 +28,10 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                       if NativeMenuBarRecovery.hasPending { try NativeMenuBarRecovery.reapply() }
                       else { try NativeMenuBarHiding.applyVisibility(snapshot, plan) }
                   }, stageExtension: NativeMenuBarHiding.stageExtension,
-                  temporarilyReveal: NativeMenuBarRecovery.temporarilyReveal)
+                  temporarilyReveal: NativeMenuBarRecovery.temporarilyReveal,
+                  finishRestore: NativeMenuBarRecovery.completeRestore,
+                  pendingApplications: NativeMenuBarRecovery.pendingApplications,
+                  hasPendingRestore: { NativeMenuBarRecovery.hasPending })
         }
     }
     struct Timing {
@@ -39,6 +45,8 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     private(set) var wantsHidden = false
     private(set) var isHidden = false
     private(set) var isTransitioning = false
+    private(set) var isRestoring = false
+    private var reportedRestoreFailure = false
     private var isSuspended = false
     private var awaitingStatusItemRepair = false
     var canRepairStatusItems: Bool {
@@ -60,7 +68,6 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     private var appliedPlan: MenuBarSectionPlanner.Plan?
     private var checkRequested = false
     private var temporaryReveal: (token: UUID, bundle: String)?
-    private var revealSettlesAt: TimeInterval = 0
     private(set) var hiddenApplications = Set<String>()
     private(set) var hiddenSystemItems = Set<String>()
     private let backend: Backend
@@ -74,14 +81,19 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     func hide() {
         trace("hide requested")
         dispatchPrecondition(condition: .onQueue(.main))
+        if isRestoring {
+            wantsHidden = true
+            if operation == nil, !isSuspended { startRestoration() }
+            return
+        }
         if wantsHidden && (isHidden || isTransitioning) { return }
         guard restoreVisibility(preservingIntent: false) else { return }
         wantsHidden = true
-        if !isSuspended { startAttempt(delay: timing.initial) }
+        if !isSuspended, !isRestoring { startAttempt(delay: timing.initial) }
     }
 
     private func startAttempt(delay: UInt64, retry: Int = 0) {
-        guard wantsHidden, !isSuspended else { return }
+        guard wantsHidden, !isSuspended, !isRestoring else { return }
         isTransitioning = true
         let current = generation
         operation = Task { @MainActor [weak self] in
@@ -89,13 +101,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             do {
                 if let prepare = self.backend.prepare { try await prepare() }
                 else { try await self.ensureHelper() }
-                // A ready layout needs no debounce. Only a just-restored
-                // transaction needs time to republish its apps; otherwise a
-                // rapid show/hide can mistake the still-hidden tree for an empty
-                // section. Transient launch/wake layouts use the retry path.
-                let settling = max(0, self.revealSettlesAt - ProcessInfo.processInfo.systemUptime)
-                let wait = max(delay, UInt64(settling * 1_000_000_000))
-                if wait > 0 { try await Task.sleep(nanoseconds: wait) }
+                if delay > 0 { try await Task.sleep(nanoseconds: delay) }
                 try Task.checkCancellation()
                 guard self.generation == current else { return }
                 let snapshot = try self.backend.capture(false)
@@ -284,7 +290,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         let data = try NativeMenuBarPreferences.changing(document, allowed: changes, includingSelfLocations: added)
         let previous = Dictionary(uniqueKeysWithValues: keys.map { ($0, document.records[$0]!.allowed) })
         return .init(original: document.data, written: data,
-            previousAllowed: previous, addedSelfLocations: added, systemChanges: systemChanges)
+            previousAllowed: previous, addedSelfLocations: added, systemChanges: systemChanges, applications: applications)
     }
 
     private static func isTransient(_ error: Error) -> Bool {
@@ -304,6 +310,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     @discardableResult
     func show() -> Bool {
         trace("show requested")
+        reportedRestoreFailure = false
         return restoreVisibility(preservingIntent: false)
     }
 
@@ -369,17 +376,15 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         setMarkerHidden?(false)
         do {
             try backend.restore()
-            if isHidden {
-                revealSettlesAt = ProcessInfo.processInfo.systemUptime + Double(timing.verification) / 1_000_000_000
-            }
+            let needsVerification = baseline != nil || backend.hasPendingRestore?() == true
             isHidden = false
-            baseline = nil
-            boundaryReference = nil
-            appliedPlan = nil
-            checkRequested = false
-            hiddenApplications = []
-            hiddenSystemItems = []
-            onChange?(false, nil)
+            if needsVerification {
+                isRestoring = true
+                hiddenApplications.formUnion(backend.pendingApplications?() ?? [])
+                if !isSuspended { startRestoration() }
+            } else {
+                finishRestoration()
+            }
             return true
         } catch {
             onChange?(isHidden, "Could not restore the menu bar: \(error.localizedDescription)")
@@ -387,12 +392,69 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         }
     }
 
+    private func finishRestoration() {
+        isRestoring = false
+        reportedRestoreFailure = false
+        isTransitioning = false
+        operation = nil
+        baseline = nil
+        boundaryReference = nil
+        appliedPlan = nil
+        checkRequested = false
+        hiddenApplications = []
+        hiddenSystemItems = []
+        onChange?(false, nil)
+    }
+
+    private func startRestoration() {
+        guard isRestoring, !isSuspended else { return }
+        isTransitioning = true
+        let current = generation
+        operation = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for attempt in 0...self.timing.retries.count {
+                do {
+                    let delay = attempt == 0 ? self.timing.verification : self.timing.retries[attempt - 1]
+                    try await Task.sleep(nanoseconds: delay)
+                    try Task.checkCancellation()
+                    guard self.generation == current else { return }
+                    if let baseline = self.baseline {
+                        let actual = try self.backend.capture(false)
+                        // A terminated app cannot republish an icon. Live backends
+                        // resolve journal owners to currently running applications.
+                        let applications = self.backend.pendingApplications?() ?? self.hiddenApplications
+                        try actual.verifyRestored(applications, systemItems: self.hiddenSystemItems, comparedTo: baseline)
+                    }
+                    try self.backend.finishRestore?()
+                    self.trace("show verified: " + self.hiddenApplications.sorted().joined(separator: ","))
+                    self.finishRestoration()
+                    if self.wantsHidden { self.startAttempt(delay: self.timing.initial) }
+                    return
+                } catch {
+                    guard !Task.isCancelled, self.generation == current else { return }
+                    self.trace("show verification pending (attempt \(attempt + 1)): \(error)")
+                }
+            }
+            guard self.generation == current, !Task.isCancelled else { return }
+            self.operation = nil
+            self.isTransitioning = false
+            if !self.reportedRestoreFailure {
+                self.reportedRestoreFailure = true
+                self.onChange?(false, NativeMenuBarSnapshot.Failure.restorationPending.localizedDescription)
+            }
+        }
+    }
+
     func verifyAfterFocusChange() {
-        guard isHidden else { return }
+        guard isHidden || isRestoring else { return }
         environmentChanged(reason: "focus")
     }
 
     func environmentChanged(reason: String = "environment") {
+        if isRestoring {
+            if operation == nil, !isSuspended { startRestoration() }
+            return
+        }
         guard wantsHidden, !isSuspended else { return }
         trace("check requested: " + reason)
         if operation != nil || temporaryReveal != nil {
@@ -419,7 +481,9 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         let wasSuspended = isSuspended
         isSuspended = false
         trace("wake: retain hidden transaction=\(baseline != nil), intent=\(wantsHidden); " + reason)
-        if wasSuspended, wantsHidden, baseline != nil {
+        if isRestoring {
+            startRestoration()
+        } else if wasSuspended, wantsHidden, baseline != nil {
             startReconciliation(delay: 0)
         } else {
             environmentChanged(reason: reason)
@@ -429,6 +493,9 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     func stop() {
         trace("stop requested")
         _ = show()
+        generation = UUID()
+        operation?.cancel()
+        operation = nil
         try? keepAlive?.close()
         keepAlive = nil
         helper = nil

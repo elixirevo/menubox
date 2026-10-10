@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // MenuBox project-owned code. See LICENSE and TRADEMARKS.md for GPL section 7 terms.
 
-import Foundation
+import AppKit
 
 enum NativeMenuBarRecovery {
     struct Journal: Codable {
@@ -10,6 +10,8 @@ enum NativeMenuBarRecovery {
         let previousAllowed: [String: Bool]
         var addedSelfLocations: Set<String>? = nil
         var systemChanges: [NativeSystemMenuBarPreferences.Change]? = nil
+        var applications: Set<String>? = nil
+        var transactionID: UUID? = UUID()
     }
     private static let directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/MenuBox/Visibility", isDirectory: true)
@@ -31,9 +33,38 @@ enum NativeMenuBarRecovery {
         let preferences = try NativeMenuBarPreferences()
         let current = try preferences.read()
         let restored = try restorationData(journal, current: current)
-        if current.data != restored { try preferences.write(restored, replacing: current.data) }
+        try preferences.write(restored, replacing: current.data)
         try NativeSystemMenuBarPreferences.restore(journal.systemChanges ?? [])
+    }
+
+    /// A preference write is not an acknowledgement from MenuBarAgent.
+    static func completeRestore() throws {
+        guard hasPending else { return }
+        let data = try Data(contentsOf: journalURL)
+        let journal = try PropertyListDecoder().decode(Journal.self, from: data)
+        let snapshot = try NativeMenuBarSnapshot.captureUnresolved()
+        guard !snapshot.bars.isEmpty else { throw NativeMenuBarSnapshot.Failure.incomplete }
+        let expected = pendingApplications()
+        let hosted = Set(snapshot.bars.flatMap(\.items).map(\.bundle))
+        guard expected.isSubset(of: hosted) else { throw NativeMenuBarSnapshot.Failure.restorationPending }
+        let current = try NativeMenuBarPreferences().read()
+        guard journal.previousAllowed.allSatisfy({ current.records[$0.key]?.allowed == $0.value }) else {
+            throw NativeMenuBarPreferences.Failure.concurrentChange
+        }
+        guard try Data(contentsOf: journalURL) == data else { throw NativeMenuBarPreferences.Failure.concurrentChange }
         try FileManager.default.removeItem(at: journalURL)
+    }
+
+    static func pendingApplications() -> Set<String> {
+        guard let data = try? Data(contentsOf: journalURL),
+              let journal = try? PropertyListDecoder().decode(Journal.self, from: data) else { return [] }
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        if let applications = journal.applications { return applications.intersection(running) }
+        // Older journals have preference owners rather than live helper identities.
+        guard let original = try? NativeMenuBarPreferences.decode(journal.original) else { return [] }
+        return Set(journal.previousAllowed.keys.flatMap { key in
+            [key] + (original.records[key]?.locations.compactMap(NativeMenuBarPreferences.bundle) ?? [])
+        }).intersection(running)
     }
 
     static func reapply() throws {
@@ -41,7 +72,7 @@ enum NativeMenuBarRecovery {
         let preferences = try NativeMenuBarPreferences()
         let current = try preferences.read()
         let data = try reapplicationData(journal, current: current)
-        if current.data != data { try preferences.write(data, replacing: current.data) }
+        try preferences.write(data, replacing: current.data)
         try NativeSystemMenuBarPreferences.reapply(journal.systemChanges ?? [])
     }
 
@@ -79,7 +110,8 @@ enum NativeMenuBarRecovery {
         let written = try NativeMenuBarPreferences.changing(original,
             allowed: previous.mapValues { _ in false }, includingSelfLocations: added)
         let result = Journal(original: original.data, written: written, previousAllowed: previous,
-            addedSelfLocations: added, systemChanges: (journal.systemChanges ?? []) + systemChanges)
+            addedSelfLocations: added, systemChanges: (journal.systemChanges ?? []) + systemChanges,
+            applications: journal.applications.map { $0.union(applications) })
         _ = try restorationData(result, current: current)
         return result
     }
@@ -90,7 +122,7 @@ enum NativeMenuBarRecovery {
         let current = try preferences.read()
         let data = try temporaryRevealData(journal, current: current, bundle: bundle,
             visible: Set(snapshot.bars.flatMap(\.items).map(\.bundle)), executables: snapshot.executables)
-        if current.data != data { try preferences.write(data, replacing: current.data) }
+        try preferences.write(data, replacing: current.data)
         // Keep the original recovery journal unchanged. Reapply hides this app
         // again; process exit still restores the original user configuration.
     }
@@ -178,6 +210,15 @@ enum NativeMenuBarRecovery {
             do { try NativeMenuBarPlacement.restore() }
             catch { placementError = error }
             try restore()
+            // Exit recovery has no controller left to observe publication. Keep
+            // the journal on timeout so the next launch can continue recovery.
+            for attempt in 0..<20 {
+                do { try completeRestore(); break }
+                catch {
+                    if attempt == 19 { throw error }
+                    Thread.sleep(forTimeInterval: 0.25)
+                }
+            }
             if let placementError { throw placementError }
             return 0
         } catch {

@@ -360,7 +360,7 @@ final class MenuBoxController: NSObject {
     }
 
     private func toggleHiddenIcons() {
-        if isHidden || (usesNativeHiding && nativeHiding.wantsHidden) {
+        if isHidden || (usesNativeHiding && (nativeHiding.wantsHidden || nativeHiding.isRestoring)) {
             showHiddenIcons()
         } else {
             hideHiddenIcons()
@@ -489,7 +489,8 @@ final class MenuBoxController: NSObject {
 
         let delay = max(store.settings.autoHideDelaySeconds, minimumDelay)
         let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            self?.hideHiddenIcons()
+            guard let self, !self.usesNativeHiding || !self.nativeHiding.isRestoring else { return }
+            self.hideHiddenIcons()
         }
         autoHideTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -969,7 +970,7 @@ final class MenuBoxController: NSObject {
 
     private func cachedProxyTargets(before tapeFrame: NSRect) -> [MenuBarProxyTarget] {
         if usesNativeHiding {
-            if nativeHiding.isHidden {
+            if nativeHiding.isHidden || nativeHiding.isRestoring {
                 return targetInventory.selected(applications: nativeHiding.hiddenApplications)
             }
             // Share the same hosted section and multi-display validation as the

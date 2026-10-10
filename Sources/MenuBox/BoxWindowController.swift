@@ -223,7 +223,7 @@ final class BoxWindowController: NSObject {
         content.wantsLayer = true
         content.layer?.cornerRadius = 12
         content.layer?.masksToBounds = true
-        let title = NSTextField(labelWithString: "Couldn’t hide menu bar icons")
+        let title = NSTextField(labelWithString: "Couldn’t update menu bar icons")
         title.font = .boldSystemFont(ofSize: 13)
         title.frame = NSRect(x: 16, y: height - 36, width: width - 32, height: 20)
         text.frame = NSRect(x: 16, y: 54, width: width - 32, height: textHeight)

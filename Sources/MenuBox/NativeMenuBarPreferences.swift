@@ -3,6 +3,7 @@
 
 import Foundation
 import CoreFoundation
+import Darwin
 
 /// Container-scoped preferences access, verified against the actual stored key.
 /// Full Disk Access is required; no Apple-only entitlement is added to the app.
@@ -12,6 +13,13 @@ final class NativeMenuBarPreferences {
     // entire host merely because it appears in the app preference store.
     static let sharedSystemHosts: Set<String> = ["com.apple.MenuBarAgent", "com.apple.systemuiserver", "com.apple.controlcenter"]
     static let key = "trackedApplications"
+    private static let domain = "group.com.apple.controlcenter"
+    private typealias PostDomainChanges = @convention(c) (CFArray) -> Void
+    private static let postDomainChanges: PostDomainChanges? = {
+        guard let framework = dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", RTLD_LAZY | RTLD_LOCAL),
+              let symbol = dlsym(framework, "_CFPreferencesPostValuesChangedInDomains") else { return nil }
+        return unsafeBitCast(symbol, to: PostDomainChanges.self)
+    }()
     static let container = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Group Containers/group.com.apple.controlcenter", isDirectory: true)
     private let defaults: UserDefaults
@@ -173,7 +181,14 @@ final class NativeMenuBarPreferences {
 
     func write(_ data: Data, replacing expected: Data) throws {
         guard defaults.data(forKey: Self.key) == expected else { throw Failure.concurrentChange }
-        defaults.set(data, forKey: Self.key)
+        if data != expected { defaults.set(data, forKey: Self.key) }
         guard defaults.synchronize(), defaults.data(forKey: Self.key) == data else { throw Failure.write }
+        // Container writes can leave MenuBarAgent's cached allow-list stale once
+        // System Settings initializes its Menu Bar pane (verified on macOS 27).
+        // Publish the committed domain through CFPreferences' external-change
+        // path, including idempotent recovery after a missed notification. Local
+        // NSUserDefaults.didChangeNotification cannot invalidate another process.
+        guard let post = Self.postDomainChanges else { throw Failure.write }
+        post([Self.domain] as CFArray)
     }
 }
