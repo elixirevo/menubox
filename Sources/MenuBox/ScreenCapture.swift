@@ -29,9 +29,9 @@ enum ScreenCapture {
             case .image:
                 return ""
             case .permissionDenied:
-                return "Allow Screen Recording access, then restart the app."
+                return menuBoxLocalized("Allow Screen Recording access, then restart the app.")
             case .failed:
-                return "Unable to capture the menu bar image."
+                return menuBoxLocalized("Unable to capture the menu bar image.")
             }
         }
     }

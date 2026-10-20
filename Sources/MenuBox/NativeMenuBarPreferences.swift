@@ -2,6 +2,7 @@
 // MenuBox project-owned code. See LICENSE and TRADEMARKS.md for GPL section 7 terms.
 
 import Foundation
+import MacAppCore
 import CoreFoundation
 import Darwin
 
@@ -34,16 +35,16 @@ final class NativeMenuBarPreferences {
         let allowed: Bool
         let locations: [Any]
     }
-    enum Failure: LocalizedError {
+    enum Failure: MenuBoxLocalizedError {
         case access, schema, missing(String), shared(String), concurrentChange, write
-        var errorDescription: String? {
+        func errorDescription(using localizer: AppLocalizer) -> String {
             switch self {
-            case .access: return "MenuBox needs Full Disk Access to hide icons on macOS 27."
-            case .schema: return "The menu bar settings format is not supported."
-            case .missing(let app): return "Cannot resolve menu bar settings for \(app)."
-            case .shared(let app): return "Hiding \(app) would also affect an icon outside the selected section."
-            case .concurrentChange: return "Menu bar settings changed. Please try again."
-            case .write: return "macOS did not confirm the menu bar setting change."
+            case .access: return menuBoxLocalized("MenuBox needs Full Disk Access to hide icons on macOS 27.", localizer: localizer)
+            case .schema: return menuBoxLocalized("The menu bar settings format is not supported.", localizer: localizer)
+            case .missing(let app): return String(format: menuBoxLocalized("Cannot resolve menu bar settings for %@.", localizer: localizer), app)
+            case .shared(let app): return String(format: menuBoxLocalized("Hiding %@ would also affect an icon outside the selected section.", localizer: localizer), app)
+            case .concurrentChange: return menuBoxLocalized("Menu bar settings changed. Please try again.", localizer: localizer)
+            case .write: return menuBoxLocalized("macOS did not confirm the menu bar setting change.", localizer: localizer)
             }
         }
     }

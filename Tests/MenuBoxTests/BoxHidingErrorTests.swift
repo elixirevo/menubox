@@ -22,12 +22,15 @@ final class BoxHidingErrorTests: XCTestCase {
         controller.showHidingError(message, anchorFrame: anchor, screen: screen)
         let window = try XCTUnwrap(NSApp.windows.first { $0.identifier?.rawValue == "MenuBox.hidingError" && $0.isVisible })
         let content = try XCTUnwrap(window.contentView)
+        XCTAssertTrue(content.subviews.compactMap { $0 as? NSTextField }
+            .contains { $0.stringValue == menuBoxLocalized("Couldn’t update menu bar icons") })
         let label = try XCTUnwrap(content.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == message })
         XCTAssertGreaterThan(label.frame.height, 20, "Long errors must wrap instead of being clipped to one icon's width")
         XCTAssertTrue(content.bounds.contains(label.frame))
         controller.refreshProxyTargets(anchorFrame: anchor, screen: screen, proxyTargets: [])
         XCTAssertTrue(window.contentView === content, "A periodic scan must not replace the error with an empty grid")
         let dismiss = try XCTUnwrap(content.subviews.compactMap { $0 as? NSButton }.first)
+        XCTAssertEqual(dismiss.title, menuBoxLocalized("OK"))
         dismiss.performClick(nil)
         XCTAssertFalse(controller.isShowing)
     }

@@ -69,6 +69,19 @@ final class MenuBarSectionPlannerTests: XCTestCase {
         }
     }
 
+    func testInvalidFramesAreReportedSeparatelyFromOverlappingIcons() {
+        for frame in [
+            CGRect(x: -500, y: -323, width: 0, height: 30),
+            CGRect(x: -500, y: -323, width: 30, height: 0),
+            CGRect(x: -10, y: -323, width: 30, height: 30)
+        ] {
+            let invalid = Planner.Item(id: "invalid", owner: .application("app"), frame: frame)
+            XCTAssertThrowsError(try Planner.plan(displays: [display([invalid])])) {
+                XCTAssertEqual($0 as? Planner.Failure, .invalidItemGeometry("external"))
+            }
+        }
+    }
+
     func testSelectsIndividualSystemItemsOnLeftAndPreservesRightFocus() throws {
         let plan = try Planner.plan(displays: [display([
             item("now-playing", .system("now-playing"), -950),

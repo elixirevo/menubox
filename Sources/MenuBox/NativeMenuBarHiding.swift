@@ -299,6 +299,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
              NativeMenuBarSnapshot.Failure.verification,
              MenuBarSectionPlanner.Failure.incompleteSnapshot,
              MenuBarSectionPlanner.Failure.missingOrAmbiguousControls,
+             MenuBarSectionPlanner.Failure.invalidItemGeometry,
              MenuBarSectionPlanner.Failure.ambiguousGeometry,
              NativeMenuBarPreferences.Failure.missing,
              NativeMenuBarPreferences.Failure.concurrentChange, NativeSystemMenuBarPreferences.Failure.concurrentChange:
@@ -387,7 +388,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             }
             return true
         } catch {
-            onChange?(isHidden, "Could not restore the menu bar: \(error.localizedDescription)")
+            onChange?(isHidden, String(format: menuBoxLocalized("Could not restore the menu bar: %@"), error.localizedDescription))
             return false
         }
     }

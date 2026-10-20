@@ -223,11 +223,11 @@ final class BoxWindowController: NSObject {
         content.wantsLayer = true
         content.layer?.cornerRadius = 12
         content.layer?.masksToBounds = true
-        let title = NSTextField(labelWithString: "Couldn’t update menu bar icons")
+        let title = NSTextField(labelWithString: menuBoxLocalized("Couldn’t update menu bar icons"))
         title.font = .boldSystemFont(ofSize: 13)
         title.frame = NSRect(x: 16, y: height - 36, width: width - 32, height: 20)
         text.frame = NSRect(x: 16, y: 54, width: width - 32, height: textHeight)
-        let dismiss = NSButton(title: "OK", target: self, action: #selector(close))
+        let dismiss = NSButton(title: menuBoxLocalized("OK"), target: self, action: #selector(close))
         dismiss.bezelStyle = .rounded
         dismiss.keyEquivalent = "\r"
         dismiss.frame = NSRect(x: width - 88, y: 12, width: 72, height: 28)
@@ -268,7 +268,7 @@ final class BoxWindowController: NSObject {
     }
 
     func showUnavailableMenu(for target: MenuBarProxyTarget, anchorPoint: NSPoint?) {
-        showStatus("Could not open \(target.displayName)’s menu", force: true)
+        showStatus(String(format: menuBoxLocalized("Could not open %@’s menu"), target.displayName), force: true)
     }
 
     func canUseNativeMenu(_ presentation: StatusItemMenuPresentation, anchorPoint: NSPoint?) -> Bool {
@@ -415,10 +415,10 @@ final class BoxWindowController: NSObject {
 
     private func initialStatusText(proxyTargets: [MenuBarProxyTarget]) -> String? {
         if !ClickForwarder.accessibilityTrusted {
-            return "Accessibility access required"
+            return menuBoxLocalized("Accessibility access required")
         }
         if proxyTargets.isEmpty {
-            return "No targets"
+            return menuBoxLocalized("No targets")
         }
         return nil
     }
@@ -575,7 +575,7 @@ final class IconStripView: NSView {
     var iconSize: CGFloat = 22
     var maxGridColumns: Int = BoxLayout.defaultMaxGridColumns
     var sourcePointSize: NSSize = .zero
-    var placeholderText = "Unable to capture the menu bar image."
+    var placeholderText = menuBoxLocalized("Unable to capture the menu bar image.")
     var rangeRect: NSRect = .zero
     var proxyTargets: [MenuBarProxyTarget] = [] {
         didSet { accessibleIcons = nil }

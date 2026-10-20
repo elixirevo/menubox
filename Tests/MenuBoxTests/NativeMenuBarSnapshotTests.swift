@@ -6,6 +6,70 @@ import XCTest
 @testable import MenuBox
 
 final class NativeMenuBarSnapshotTests: XCTestCase {
+    func testDuplicateWindowWithZeroWidthHostsDoesNotMaskCompleteReplica() throws {
+        let complete = bar(0, overflow: true)
+        var placeholder = complete
+        placeholder.items[4] = .init(id: "focus", bundle: "com.apple.MenuBarAgent",
+            frame: CGRect(x: 140, y: 0, width: 0, height: 24), identifier: "focus")
+        for candidates in [[placeholder, complete], [complete, placeholder]] {
+            let selected = NativeMenuBarSnapshot.selectReplicas(candidates + [bar(-200)])
+            XCTAssertEqual(selected.count, 2)
+            XCTAssertEqual(selected.first { $0.id == complete.id }?.items[4].frame.width, 20)
+            let resolved = try NativeMenuBarSnapshot.resolveControls(selected, markerHidden: false)
+            XCTAssertEqual(try NativeMenuBarSnapshot(bars: resolved, executables: [:]).plan().applicationKeys,
+                           ["one", "two"])
+        }
+    }
+
+    func testUsableGeometryPrecedesIdentifierCountAndStillResolvesFromOtherDisplay() throws {
+        var complete = bar(0), invalid = bar(0)
+        complete.items = complete.items.map {
+            .init(id: $0.id, bundle: $0.bundle, frame: $0.frame, identifier: "")
+        }
+        invalid.items[4] = .init(id: "focus", bundle: "com.apple.MenuBarAgent",
+            frame: CGRect(x: 195, y: 0, width: 20, height: 24), identifier: "focus")
+        for candidates in [[invalid, complete], [complete, invalid]] {
+            let selected = NativeMenuBarSnapshot.selectReplicas(candidates + [bar(-200)])
+            let resolved = try NativeMenuBarSnapshot.resolveControls(selected, markerHidden: false)
+            XCTAssertNoThrow(try NativeMenuBarSnapshot(bars: resolved, executables: [:]).plan())
+        }
+    }
+
+    func testInvalidOnlyReplicaIsNotDroppedOrMadeEligible() {
+        var invalid = bar(0)
+        invalid.items[4] = .init(id: "focus", bundle: "com.apple.MenuBarAgent",
+            frame: CGRect(x: 140, y: 0, width: 0, height: 24), identifier: "focus")
+        let selected = NativeMenuBarSnapshot.selectReplicas([invalid, bar(-200)])
+        XCTAssertEqual(selected.count, 2)
+        XCTAssertEqual(selected.first { $0.id == invalid.id }?.items.count, invalid.items.count)
+        XCTAssertThrowsError(try NativeMenuBarSnapshot(bars: selected, executables: [:]).plan()) {
+            XCTAssertEqual($0 as? MenuBarSectionPlanner.Failure, .invalidItemGeometry(invalid.id))
+        }
+    }
+
+    func testValidDuplicateStillPrefersIdentifiersAndAcceptsCollapsedMarker() throws {
+        var identified = bar(0)
+        identified.items[2] = .init(id: "MenuBox.marker", bundle: own,
+            frame: CGRect(x: 70, y: 0, width: 0, height: 24), identifier: "MenuBox.marker")
+        var blank = identified
+        blank.items = blank.items.map {
+            .init(id: $0.id, bundle: $0.bundle, frame: $0.frame, identifier: "")
+        }
+        for candidates in [[blank, identified], [identified, blank]] {
+            let selected = NativeMenuBarSnapshot.selectReplicas(candidates)
+            XCTAssertEqual(selected[0].items[2].identifier, "MenuBox.marker")
+            XCTAssertNoThrow(try NativeMenuBarSnapshot.resolveControls(selected, markerHidden: true))
+        }
+    }
+
+    func testEmptyDuplicateCannotReplacePopulatedObservation() {
+        let populated = bar(0)
+        let empty = NativeMenuBarSnapshot.Bar(frame: populated.frame, items: [])
+        for candidates in [[empty, populated], [populated, empty]] {
+            XCTAssertEqual(NativeMenuBarSnapshot.selectReplicas(candidates)[0].items.count, populated.items.count)
+        }
+    }
+
     func testRestoreRequiresTargetsOnEveryRemainingDisplay() throws {
         let before = NativeMenuBarSnapshot(bars: [bar(-200), bar(0)], executables: [:])
         var missing = bar(0)

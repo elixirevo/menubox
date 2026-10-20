@@ -7,10 +7,6 @@ import MacAppCore
 import MacAppSettings
 import SwiftUI
 
-func menuBoxLocalized(_ key: String) -> String {
-    AppLocalizer.current.string(key, bundle: .module)
-}
-
 enum SettingsTab { case general, features, shortcuts, permissions, updates, support, terms, about }
 enum MenuBoxShortcutTarget { case menuBarIcon, boxUI }
 

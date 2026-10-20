@@ -2,6 +2,7 @@
 // MenuBox project-owned code. See LICENSE and TRADEMARKS.md for GPL section 7 terms.
 
 import Foundation
+import MacAppCore
 import CoreFoundation
 
 /// A macOS 27 menu session can bring one overflowed item beside Box without
@@ -22,15 +23,15 @@ enum NativeMenuBarPlacement {
         var temporary: Double
     }
 
-    enum Failure: LocalizedError {
+    enum Failure: MenuBoxLocalizedError {
         case unavailable, ambiguous, changed, pending, write
-        var errorDescription: String? {
+        func errorDescription(using localizer: AppLocalizer) -> String {
             switch self {
-            case .unavailable: return "Could not read the menu bar layout. Check MenuBox’s Full Disk Access."
-            case .ambiguous: return "Could not identify a safe temporary position for this icon."
-            case .changed: return "The menu bar layout changed. Try opening the menu again."
-            case .pending: return "The previous icon position still needs to be restored."
-            case .write: return "macOS did not confirm the icon position change."
+            case .unavailable: return menuBoxLocalized("Could not read the menu bar layout. Check MenuBox’s Full Disk Access.", localizer: localizer)
+            case .ambiguous: return menuBoxLocalized("Could not identify a safe temporary position for this icon.", localizer: localizer)
+            case .changed: return menuBoxLocalized("The menu bar layout changed. Try opening the menu again.", localizer: localizer)
+            case .pending: return menuBoxLocalized("The previous icon position still needs to be restored.", localizer: localizer)
+            case .write: return menuBoxLocalized("macOS did not confirm the icon position change.", localizer: localizer)
             }
         }
     }

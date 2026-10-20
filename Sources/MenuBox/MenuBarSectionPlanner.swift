@@ -3,6 +3,7 @@
 
 import CoreGraphics
 import Foundation
+import MacAppCore
 
 /// Pure eligibility check for an app-wide backend. Feed only resolved hosting
 /// snapshots; this does not infer visibility from AX rectangle containment.
@@ -33,22 +34,25 @@ enum MenuBarSectionPlanner {
         let systemItemIDs: Set<String>
     }
 
-    enum Failure: LocalizedError, Equatable {
+    enum Failure: MenuBoxLocalizedError, Equatable {
         case incompleteSnapshot
         case missingOrAmbiguousControls(String)
+        case invalidItemGeometry(String)
         case ambiguousGeometry(String)
         case applicationSpansBoundary(String)
 
-        var errorDescription: String? {
+        func errorDescription(using localizer: AppLocalizer) -> String {
             switch self {
             case .incompleteSnapshot:
-                return "The menu bar layout is still updating. Try hiding the icons again."
+                return menuBoxLocalized("The menu bar layout is still updating. Try hiding the icons again.", localizer: localizer)
             case .missingOrAmbiguousControls:
-                return "MenuBox’s box or marker is missing on a display. Wait for the icons to return, then try again."
+                return menuBoxLocalized("MenuBox’s box or marker is missing on a display. Wait for the icons to return, then try again.", localizer: localizer)
+            case .invalidItemGeometry:
+                return menuBoxLocalized("Some menu bar icons have an invalid size or position. Wait for the menu bar to settle, then try again.", localizer: localizer)
             case .ambiguousGeometry:
-                return "The marker overlaps another icon or is outside the visible menu bar. Command-drag it to a clear position, then try again."
+                return menuBoxLocalized("Menu bar icons overlap at or to the right of the marker. Hold ⌘ and drag them apart, then try again.", localizer: localizer)
             case .applicationSpansBoundary(let item):
-                return "\(item) appears on both sides of the marker. Place its icons on the same side on every display before hiding."
+                return String(format: menuBoxLocalized("%@ appears on both sides of the marker. Place its icons on the same side on every display before hiding.", localizer: localizer), item)
             }
         }
     }
@@ -77,7 +81,7 @@ enum MenuBarSectionPlanner {
             }
             let items = display.items.sorted { $0.frame.minX < $1.frame.minX }
             guard items.allSatisfy({ valid($0.frame) && display.frame.contains($0.frame) }) else {
-                throw Failure.ambiguousGeometry(display.id)
+                throw Failure.invalidItemGeometry(display.id)
             }
 
             let boundary = markers[0].frame.minX

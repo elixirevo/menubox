@@ -2,6 +2,7 @@
 // MenuBox project-owned code. See LICENSE and TRADEMARKS.md for GPL section 7 terms.
 
 import Foundation
+import MacAppCore
 import CoreFoundation
 
 /// Per-control settings, not a global menu bar restriction. These values were
@@ -66,14 +67,14 @@ enum NativeSystemMenuBarPreferences {
             }
         }
     }
-    enum Failure: LocalizedError {
+    enum Failure: MenuBoxLocalizedError {
         case unsupported(String), schema, concurrentChange, write
-        var errorDescription: String? {
+        func errorDescription(using localizer: AppLocalizer) -> String {
             switch self {
-            case .unsupported(let item): return "This macOS control cannot be hidden yet: \(item). Move it to the right of the marker."
-            case .schema: return "The macOS control visibility setting has an unsupported format."
-            case .concurrentChange: return "A macOS control setting changed during hiding. Please try again."
-            case .write: return "macOS did not confirm the control visibility change."
+            case .unsupported(let item): return String(format: menuBoxLocalized("This macOS control cannot be hidden yet: %@. Move it to the right of the marker.", localizer: localizer), item)
+            case .schema: return menuBoxLocalized("The macOS control visibility setting has an unsupported format.", localizer: localizer)
+            case .concurrentChange: return menuBoxLocalized("A macOS control setting changed during hiding. Please try again.", localizer: localizer)
+            case .write: return menuBoxLocalized("macOS did not confirm the control visibility change.", localizer: localizer)
             }
         }
     }

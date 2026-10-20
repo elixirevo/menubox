@@ -27,7 +27,7 @@ enum ClickForwarder {
             case .mouseEvent:
                 return "Mouse"
             case .failed:
-                return "Failed"
+                return menuBoxLocalized("Failed")
             }
         }
     }

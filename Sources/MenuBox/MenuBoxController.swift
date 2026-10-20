@@ -1056,7 +1056,7 @@ final class MenuBoxController: NSObject {
         switch button {
         case .left:
             guard let target = click.target else {
-                boxWindowController.showStatus("Failed: No target")
+                boxWindowController.showStatus(menuBoxLocalized("No icon was selected. Please try again."))
                 scheduleAutoHideIfNeeded(minimumDelay: 15)
                 return
             }
@@ -1080,7 +1080,7 @@ final class MenuBoxController: NSObject {
 
         if usesNativeHiding || !click.revealBeforeForwarding {
             guard let target = click.target else {
-                boxWindowController.showStatus("Failed: No target")
+                boxWindowController.showStatus(menuBoxLocalized("No icon was selected. Please try again."))
                 return
             }
 
@@ -1117,7 +1117,7 @@ final class MenuBoxController: NSObject {
                 let point = targetForClick?.appKitClickPoint ?? click.appKitPoint
                 guard self.isVisibleMenuBarPoint(point) else {
                     NSLog("[MenuBox] Proxy click target is not visible after reveal point=%@", NSStringFromPoint(point))
-                    self.boxWindowController.showStatus("Failed: Target not found")
+                    self.boxWindowController.showStatus(menuBoxLocalized("The selected icon could not be found. Please try again."))
                     return ClickForwarder.ForwardResult.failed
                 }
 
@@ -1149,7 +1149,7 @@ final class MenuBoxController: NSObject {
         let previous = hiddenMenuTask
         previous?.cancel()
         boxWindowController.beginMenuInteraction()
-        boxWindowController.showStatus("Opening menu: \(target.displayName)")
+        boxWindowController.showStatus(String(format: menuBoxLocalized("Opening menu: %@"), target.displayName))
         hiddenMenuTask = Task { @MainActor [weak self] in
             await previous?.value
             guard let self else { return }
@@ -1239,7 +1239,7 @@ final class MenuBoxController: NSObject {
                 visibilityLease = try nativeHiding.beginTemporaryReveal(target.bundleIdentifier)
             }
             var revealReady = visibilityLease == nil
-            boxWindowController.showStatus("Opening menu: \(target.displayName)")
+            boxWindowController.showStatus(String(format: menuBoxLocalized("Opening menu: %@"), target.displayName))
             // Wait for the host to publish the selected app at its real position.
             // A hidden AX frame can remain readable but points at the overflow
             // placeholder, so it must not be used as an event destination.
@@ -1297,7 +1297,7 @@ final class MenuBoxController: NSObject {
                 if let display { pendingMenuPlacementRestore = (placement.token, target, display) }
             } catch {
                 nativeHiding.recordMenuInteraction("position restoration pending: \(error.localizedDescription)")
-                boxWindowController.showStatus("Could not restore the icon position", force: true)
+                boxWindowController.showStatus(menuBoxLocalized("Could not restore the icon position"), force: true)
             }
         }
         if let visibilityLease { nativeHiding.endTemporaryReveal(visibilityLease) }
@@ -1329,14 +1329,14 @@ final class MenuBoxController: NSObject {
             defer { self.boxWindowController.endMenuInteraction() }
             guard let currentTarget = MenuBarProxyScanner.refreshedStatusItemTarget(from: target),
                   let opened = await self.requestHiddenStatusItemMenu(for: currentTarget) else {
-                self.boxWindowController.showStatus("Menu unavailable: \(target.displayName)")
+                self.boxWindowController.showStatus(String(format: menuBoxLocalized("Menu unavailable: %@"), target.displayName))
                 self.scheduleAutoHideIfNeeded(minimumDelay: 15)
                 return
             }
             defer { opened.cancel() }
             guard !Task.isCancelled else { return }
             guard let item = MenuBarProxyScanner.currentMenuItem(matching: selection, in: opened.items) else {
-                self.boxWindowController.showStatus("Menu changed: Open it again")
+                self.boxWindowController.showStatus(menuBoxLocalized("Menu changed: Open it again"))
                 self.scheduleAutoHideIfNeeded(minimumDelay: 15)
                 return
             }
@@ -1357,7 +1357,7 @@ final class MenuBoxController: NSObject {
         autoHideTimer = nil
 
         guard let app = runningApplication(for: target) else {
-            boxWindowController.showStatus("Unsupported app: \(target.displayName)")
+            boxWindowController.showStatus(String(format: menuBoxLocalized("Unsupported app: %@"), target.displayName))
             scheduleAutoHideIfNeeded(minimumDelay: 15)
             return
         }
@@ -1494,7 +1494,7 @@ final class MenuBoxController: NSObject {
     }
 
     private func markTargetApplicationUnsupported(_ target: MenuBarProxyTarget) {
-        boxWindowController.showStatus("Unsupported app: \(target.displayName)")
+        boxWindowController.showStatus(String(format: menuBoxLocalized("Unsupported app: %@"), target.displayName))
         scheduleAutoHideIfNeeded(minimumDelay: 30)
     }
 

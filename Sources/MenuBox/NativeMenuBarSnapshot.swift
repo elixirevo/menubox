@@ -2,6 +2,7 @@
 // MenuBox project-owned code. See LICENSE and TRADEMARKS.md for GPL section 7 terms.
 
 import AppKit
+import MacAppCore
 import ApplicationServices
 
 struct NativeMenuBarSnapshot {
@@ -24,15 +25,15 @@ struct NativeMenuBarSnapshot {
     let executables: [String: URL]
     var applicationControlBundles: Set<String> = []
 
-    enum Failure: LocalizedError {
+    enum Failure: MenuBoxLocalizedError {
         case permission, incomplete, boundary, verification, restorationPending
-        var errorDescription: String? {
+        func errorDescription(using localizer: AppLocalizer) -> String {
             switch self {
-            case .restorationPending: return "macOS has not restored the menu bar icons yet. MenuBox is keeping the recovery information and will retry."
-            case .permission: return "MenuBox needs Device Control and Data Access permission."
-            case .incomplete: return "The menu bar layout is not ready. Please try again."
-            case .boundary: return "The marker boundary differs between displays or cannot be resolved."
-            case .verification: return "The menu bar did not match the requested hiding result. The icons were restored."
+            case .restorationPending: return menuBoxLocalized("macOS has not restored the menu bar icons yet. MenuBox is keeping the recovery information and will retry.", localizer: localizer)
+            case .permission: return menuBoxLocalized("MenuBox needs Device Control and Data Access permission.", localizer: localizer)
+            case .incomplete: return menuBoxLocalized("The menu bar layout is not ready. Please try again.", localizer: localizer)
+            case .boundary: return menuBoxLocalized("The marker boundary differs between displays or cannot be resolved.", localizer: localizer)
+            case .verification: return menuBoxLocalized("The menu bar did not match the requested hiding result. The icons were restored.", localizer: localizer)
             }
         }
     }
@@ -61,7 +62,7 @@ struct NativeMenuBarSnapshot {
         for app in running {
             if let bundle = app.bundleIdentifier, let url = app.executableURL { executables[bundle] = url }
         }
-        var byFrame: [String: Bar] = [:]
+        var captured: [Bar] = []
         let displays = NSScreen.screens.compactMap { screen -> CGRect? in
             guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
             return CGDisplayBounds(number.uint32Value)
@@ -87,13 +88,43 @@ struct NativeMenuBarSnapshot {
                 counts[item.bundle] = ordinal + 1
                 items[index].id = item.identifier.isEmpty ? "\(item.bundle):\(ordinal)" : "\(item.bundle):\(item.identifier)"
             }
-            let bar = Bar(frame: frame, items: items)
-            let old = byFrame[bar.id]
-            if old == nil || items.filter({ !$0.identifier.isEmpty }).count > old!.items.filter({ !$0.identifier.isEmpty }).count {
-                byFrame[bar.id] = bar
-            }
+            captured.append(Bar(frame: frame, items: items))
         }
-        return NativeMenuBarSnapshot(bars: Array(byFrame.values), executables: executables)
+        return NativeMenuBarSnapshot(bars: selectReplicas(captured), executables: executables)
+    }
+
+    /// MenuBarAgent can publish two windows for one display, one with zero-width
+    /// placeholders. Prefer a complete geometry observation before comparing AX
+    /// identity coverage. Keep each observation intact; never merge coordinates
+    /// or discard malformed items to manufacture an eligible hiding plan.
+    static func selectReplicas(_ captured: [Bar]) -> [Bar] {
+        var byFrame: [String: Bar] = [:]
+        for bar in captured {
+            if let old = byFrame[bar.id] {
+                let usable = hasUsableGeometry(bar), oldUsable = hasUsableGeometry(old)
+                if usable != oldUsable {
+                    if usable { byFrame[bar.id] = bar }
+                    continue
+                }
+                guard bar.items.filter({ !$0.identifier.isEmpty }).count >
+                    old.items.filter({ !$0.identifier.isEmpty }).count else { continue }
+            }
+            byFrame[bar.id] = bar
+        }
+        return byFrame.values.sorted { $0.id < $1.id }
+    }
+
+    private static func hasUsableGeometry(_ bar: Bar) -> Bool {
+        !bar.items.isEmpty && bar.items.filter { !$0.isTransientSystemIndicator }.allSatisfy { item in
+            let frame = item.frame
+            // A collapsed marker is intentional while hidden, including blank
+            // identifiers on inactive displays. Other zero-width hosts are not.
+            let collapsedMarker = item.bundle == NativeMenuBarPreferences.ownBundle &&
+                (item.identifier.isEmpty || item.identifier == "MenuBox.marker") &&
+                frame.width >= 0 && frame.width <= StatusItemMarkerPresentation.collapsedHostWidth
+            return [frame.minX, frame.minY, frame.width, frame.height].allSatisfy(\.isFinite) &&
+                (frame.width > 0 || collapsedMarker) && frame.height > 0 && bar.frame.contains(frame)
+        }
     }
 
     /// MenuBarAgent also publishes popups and can retain disconnected display
