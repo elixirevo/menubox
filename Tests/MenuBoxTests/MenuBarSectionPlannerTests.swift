@@ -118,4 +118,34 @@ final class MenuBarSectionPlannerTests: XCTestCase {
         XCTAssertEqual(result.applicationKeys, ["app"])
         XCTAssertEqual(result.protectedItemsByDisplay["external"], ["box", "marker"])
     }
+    func testPartialPlanExcludesInvalidIconAcrossAllDisplays() throws {
+        let invalid = Planner.Item(id: "bad", owner: .application("bad"), frame: CGRect(x: -500, y: -323, width: 0, height: 30))
+        let plan = try Planner.partialPlan(displays: [
+            display([invalid, item("good", .application("good"), -850)], id: "one"),
+            display([item("bad", .application("bad"), -850)], id: "two")
+        ])
+        XCTAssertEqual(plan.applicationKeys, ["good"])
+        XCTAssertEqual(plan.exclusions.map(\.identifier), ["bad"])
+    }
+
+    func testPartialPlanExcludesOverlapsAndSpanningAppsButKeepsSafeApp() throws {
+        let plan = try Planner.partialPlan(displays: [display([
+            item("good", .application("good"), -850),
+            item("overlap", .application("overlap"), -645),
+            item("span-left", .application("spanning"), -800),
+            item("span-right", .application("spanning"), -500)
+        ])])
+        XCTAssertEqual(plan.applicationKeys, ["good"])
+        XCTAssertEqual(Set(plan.exclusions.map(\.identifier)), ["overlap", "spanning"])
+    }
+
+    func testPartialPlanStillRejectsInvalidMarkerAndUnresolvedDisplay() {
+        XCTAssertThrowsError(try Planner.partialPlan(displays: [display([], resolved: false)]))
+        let broken = Planner.Display(id: "broken", frame: CGRect(x: 0, y: 0, width: 500, height: 24), items: [
+            .init(id: "marker", owner: .marker, frame: .zero),
+            .init(id: "box", owner: .box, frame: CGRect(x: 100, y: 0, width: 20, height: 24))
+        ], isResolved: true)
+        XCTAssertThrowsError(try Planner.partialPlan(displays: [broken]))
+    }
+
 }

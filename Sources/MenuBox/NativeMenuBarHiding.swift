@@ -17,6 +17,11 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         var finishRestore: (() throws -> Void)? = nil
         var pendingApplications: (() -> Set<String>)? = nil
         var hasPendingRestore: (() -> Bool)? = nil
+        var refinePlan: ((NativeMenuBarSnapshot, MenuBarSectionPlanner.Plan) throws -> MenuBarSectionPlanner.Plan)? = nil
+        var retainPlan: ((NativeMenuBarSnapshot, MenuBarSectionPlanner.Plan) throws -> Void)? = nil
+        // Live finishRestore verifies persisted values before removing the journal.
+        // Backends without that guarantee must still verify restored host membership.
+        var settingsRestoreIsAuthoritative = false
         var prepare: (() async throws -> Void)?
         var log: ((String) -> Void)?
 
@@ -31,7 +36,10 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                   temporarilyReveal: NativeMenuBarRecovery.temporarilyReveal,
                   finishRestore: NativeMenuBarRecovery.completeRestore,
                   pendingApplications: NativeMenuBarRecovery.pendingApplications,
-                  hasPendingRestore: { NativeMenuBarRecovery.hasPending })
+                  hasPendingRestore: { NativeMenuBarRecovery.hasPending },
+                  refinePlan: NativeMenuBarHiding.preparePartialPlan,
+                  retainPlan: NativeMenuBarRecovery.retain,
+                  settingsRestoreIsAuthoritative: true)
         }
     }
     struct Timing {
@@ -40,6 +48,8 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         var verification: UInt64 = 250_000_000
         var retries: [UInt64] = [250_000_000, 500_000_000, 1_000_000_000, 2_000_000_000, 3_000_000_000]
     }
+    private(set) var noticeIdentifier: String?
+    private(set) var noticeTitle = menuBoxLocalized("Couldn’t hide menu bar icons")
     var onChange: ((Bool, String?) -> Void)?
     var setMarkerHidden: ((Bool) -> Void)?
     private(set) var wantsHidden = false
@@ -98,14 +108,21 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         let current = generation
         operation = Task { @MainActor [weak self] in
             guard let self else { return }
+            var failureTitle = "Couldn’t prepare icon recovery"
             do {
                 if let prepare = self.backend.prepare { try await prepare() }
                 else { try await self.ensureHelper() }
                 if delay > 0 { try await Task.sleep(nanoseconds: delay) }
                 try Task.checkCancellation()
                 guard self.generation == current else { return }
+                failureTitle = "Couldn’t read the menu bar layout"
                 let snapshot = try self.backend.capture(false)
-                let plan = try snapshot.plan()
+                failureTitle = "Couldn’t determine which icons to hide"
+                let proposed = try snapshot.plan(allowPartial: true)
+                failureTitle = "Couldn’t read menu bar settings"
+                let plan = try self.backend.refinePlan?(snapshot, proposed) ?? proposed
+                if self.finishEmptyPlan(plan) { return }
+                failureTitle = "Couldn’t apply menu bar settings"
                 try self.backend.apply(snapshot, plan)
                 // Queue the marker's host geometry in the same main-actor turn
                 // as the visibility write. Presentation must not clear its image
@@ -130,7 +147,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                     self.startAttempt(delay: self.timing.retries[retry], retry: retry + 1)
                 } else {
                     self.operation = nil
-                    self.onChange?(false, message)
+                    self.report(false, title: failureTitle, message: message)
                 }
             }
         }
@@ -148,6 +165,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             var nextDelay = delay
             var changedLayout: String?
             var targetsStillVisible = false
+            var lastActual: NativeMenuBarSnapshot?
             for attempt in 0...self.timing.retries.count {
                 do {
                     if let prepare = self.backend.prepare { try await prepare() }
@@ -158,15 +176,17 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                     self.setMarkerHidden?(true)
                     let actual = try self.backend.capture(true)
                     self.awaitingStatusItemRepair = false
-                    switch try actual.hiddenState(plan.applicationKeys, comparedTo: baseline,
-                                                  systemItems: plan.systemItemIDs) {
+                    lastActual = actual
+                    switch try actual.excluding(plan.exclusions).hiddenState(plan.applicationKeys,
+                        comparedTo: baseline.excluding(plan.exclusions), systemItems: plan.systemItemIDs) {
                     case .hidden:
                         self.isHidden = true
                         self.isTransitioning = false
                         self.operation = nil
                         self.trace("hidden: " + plan.applicationKeys.sorted().joined(separator: ",") +
                                    "; systems: " + plan.systemItemIDs.sorted().joined(separator: ","))
-                        self.onChange?(true, nil)
+                        self.report(true, title: "Some icons were left visible", message: Self.partialMessage(plan),
+                                    identifier: HidingNoticeIdentity.partial(plan))
                         if self.checkRequested { self.startReconciliation(delay: self.timing.environment) }
                         return
                     case .targetsVisible:
@@ -197,30 +217,53 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                             }
                             do {
                                 guard let reference = self.boundaryReference else { throw NativeMenuBarSnapshot.Failure.incomplete }
-                                let update = try actual.addingItemsWhileHidden(comparedTo: baseline,
-                                    boundaryReference: reference, plan: plan)
-                                let extendsHiding = update.plan.applicationKeys != plan.applicationKeys || update.plan.systemItemIDs != plan.systemItemIDs
+                                let update = try actual.excluding(plan.exclusions).addingItemsWhileHidden(
+                                    comparedTo: baseline.excluding(plan.exclusions),
+                                    boundaryReference: reference.excluding(plan.exclusions), plan: plan)
+                                let updatedBaseline = update.baseline.includingExcluded(from: actual, exclusions: plan.exclusions)
+                                var proposed = update.plan
+                                proposed.exclusions = plan.exclusions
+                                let next = try self.backend.refinePlan?(updatedBaseline, proposed) ?? proposed
+                                let extendsHiding = next.applicationKeys != plan.applicationKeys || next.systemItemIDs != plan.systemItemIDs
                                 if extendsHiding {
+                                    var retained = plan
+                                    for key in plan.applicationKeys.subtracting(next.applicationKeys) {
+                                        retained = retained.excluding(.application(key), reason: "Changing this setting would also affect icons that must stay visible.")
+                                    }
+                                    for key in plan.systemItemIDs.subtracting(next.systemItemIDs) {
+                                        retained = retained.excluding(.system(key), reason: "This macOS control does not have a supported hiding setting.")
+                                    }
+                                    if retained.applicationKeys != plan.applicationKeys || retained.systemItemIDs != plan.systemItemIDs {
+                                        guard let retain = self.backend.retainPlan else { throw NativeMenuBarSnapshot.Failure.incomplete }
+                                        try retain(updatedBaseline, retained)
+                                        self.appliedPlan = retained
+                                        self.hiddenApplications = retained.applicationKeys
+                                        self.hiddenSystemItems = retained.systemItemIDs
+                                    }
                                     guard let stage = self.backend.stageExtension else { throw NativeMenuBarSnapshot.Failure.incomplete }
-                                    try stage(update.baseline, plan, update.plan)
+                                    try stage(updatedBaseline, retained, next)
                                 }
                                 // Once journaled, keep the expanded intent even
                                 // if applying needs a retry. Never restore first.
-                                self.baseline = update.baseline
-                                self.appliedPlan = update.plan
-                                self.hiddenApplications = update.plan.applicationKeys
-                                self.hiddenSystemItems = update.plan.systemItemIDs
+                                self.baseline = updatedBaseline
+                                self.appliedPlan = next
+                                self.hiddenApplications = next.applicationKeys
+                                self.hiddenSystemItems = next.systemItemIDs
                                 if extendsHiding {
-                                    do { try self.backend.reapply(update.baseline, update.plan) }
+                                    do { try self.backend.reapply(updatedBaseline, next) }
                                     catch { self.trace("extended transaction awaiting apply: \(error)") }
                                 }
-                                self.trace("extended section without reveal: " + update.plan.applicationKeys.subtracting(plan.applicationKeys).sorted().joined(separator: ","))
+                                self.trace("extended section without reveal: " + next.applicationKeys.subtracting(plan.applicationKeys).sorted().joined(separator: ","))
                                 self.startReconciliation(delay: self.timing.verification)
                                 return
                             } catch {
                                 // Incomplete hosts or ambiguous ownership are
                                 // not permission to expose every hidden item.
                                 self.trace("section update deferred; keep hidden: \(error)")
+                                if self.appliedPlan != plan {
+                                    self.startReconciliation(delay: self.timing.verification)
+                                    return
+                                }
                             }
                         }
                         changedLayout = signature
@@ -234,9 +277,19 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                     self.trace("hidden check deferred (attempt \(attempt + 1)): " + String(describing: error))
                     changedLayout = nil
                     targetsStillVisible = false
+                    if let refine = self.backend.refinePlan, self.backend.retainPlan != nil {
+                        do {
+                            let reduced = try refine(baseline, plan)
+                            if reduced.applicationKeys != plan.applicationKeys || reduced.systemItemIDs != plan.systemItemIDs {
+                                try self.keepEligiblePlan(reduced, baseline: baseline)
+                                return
+                            }
+                        } catch { self.trace("could not isolate failed icon: \(error)") }
+                    }
                     if !Self.isTransient(error) {
-                        _ = self.restoreVisibility(preservingIntent: false)
-                        self.onChange?(self.isHidden, error.localizedDescription)
+                        if self.restoreVisibility(preservingIntent: false) {
+                            self.report(self.isHidden, title: "Couldn’t apply menu bar settings", message: error.localizedDescription)
+                        }
                         return
                     }
                     nextDelay = attempt < self.timing.retries.count ? self.timing.retries[attempt] : self.timing.environment
@@ -245,9 +298,31 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             guard self.generation == current else { return }
             self.operation = nil
             self.isTransitioning = false
-            if targetsStillVisible {
-                _ = self.restoreVisibility(preservingIntent: false)
-                self.onChange?(self.isHidden, NativeMenuBarSnapshot.Failure.verification.localizedDescription)
+            if targetsStillVisible, let actual = lastActual {
+                if self.backend.retainPlan != nil {
+                    var reduced = plan
+                    for item in actual.bars.flatMap(\.items) {
+                        if plan.applicationKeys.contains(item.bundle) {
+                            reduced = reduced.excluding(.application(item.bundle), reason: "macOS did not hide this icon after repeated attempts. Its original setting was restored.")
+                        }
+                        if plan.systemItemIDs.contains(item.id) {
+                            reduced = reduced.excluding(.system(item.id), reason: "macOS did not hide this icon after repeated attempts. Its original setting was restored.")
+                        }
+                    }
+                    if reduced != plan {
+                        do {
+                            reduced = try self.backend.refinePlan?(baseline, reduced) ?? reduced
+                            try self.keepEligiblePlan(reduced, baseline: baseline)
+                        } catch {
+                            self.report(self.isHidden, title: "Couldn’t restore excluded icons", message: error.localizedDescription)
+                        }
+                        return
+                    }
+                }
+                if self.restoreVisibility(preservingIntent: false) {
+                    self.report(self.isHidden, title: "Couldn’t verify icon hiding",
+                        message: NativeMenuBarSnapshot.Failure.verification.localizedDescription)
+                }
                 return
             }
             // An unavailable AX tree is not evidence that hidden settings should
@@ -255,6 +330,40 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             self.trace("hidden check pending: keeping existing transaction")
             if self.checkRequested { self.startReconciliation(delay: self.timing.environment) }
         }
+    }
+
+    private func report(_ hidden: Bool, title: String, message: String?, identifier: String? = nil) {
+        noticeIdentifier = identifier
+        noticeTitle = menuBoxLocalized(title)
+        onChange?(hidden, message)
+    }
+
+    @discardableResult
+    private func finishEmptyPlan(_ plan: MenuBarSectionPlanner.Plan) -> Bool {
+        guard plan.applicationKeys.isEmpty, plan.systemItemIDs.isEmpty, !plan.exclusions.isEmpty else { return false }
+        wantsHidden = false
+        isHidden = false
+        isTransitioning = false
+        operation = nil
+        baseline = nil
+        boundaryReference = nil
+        appliedPlan = nil
+        hiddenApplications = []
+        hiddenSystemItems = []
+        setMarkerHidden?(false)
+        report(false, title: "No icons could be hidden", message: Self.partialMessage(plan),
+               identifier: HidingNoticeIdentity.partial(plan))
+        return true
+    }
+
+    private func keepEligiblePlan(_ plan: MenuBarSectionPlanner.Plan, baseline: NativeMenuBarSnapshot) throws {
+        try backend.retainPlan?(baseline, plan)
+        trace("excluded icons: " + plan.exclusions.map(\.identifier).sorted().joined(separator: ","))
+        if finishEmptyPlan(plan) { return }
+        appliedPlan = plan
+        hiddenApplications = plan.applicationKeys
+        hiddenSystemItems = plan.systemItemIDs
+        startReconciliation(delay: timing.verification)
     }
 
     private static func applyVisibility(_ snapshot: NativeMenuBarSnapshot, _ plan: MenuBarSectionPlanner.Plan) throws {
@@ -344,8 +453,8 @@ final class NativeMenuBarHiding: @unchecked Sendable {
               let baseline, let plan = appliedPlan else { throw CancellationError() }
         // The selected app is protected by the same visibility/order checks as
         // right-side icons. All other selected apps and system items stay hidden.
-        return try backend.capture(true).hiddenState(plan.applicationKeys.subtracting([lease.bundle]),
-            comparedTo: baseline, systemItems: plan.systemItemIDs) == .hidden
+        return try backend.capture(true).excluding(plan.exclusions).hiddenState(plan.applicationKeys.subtracting([lease.bundle]),
+            comparedTo: baseline.excluding(plan.exclusions), systemItems: plan.systemItemIDs) == .hidden
     }
 
     func endTemporaryReveal(_ token: UUID) {
@@ -359,7 +468,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             trace("temporary menu rehidden: " + bundle)
         } catch {
             trace("temporary menu rehide failed: " + error.localizedDescription)
-            onChange?(isHidden, error.localizedDescription)
+            report(isHidden, title: "Couldn’t apply menu bar settings", message: error.localizedDescription)
         }
         if !isSuspended { startReconciliation(delay: timing.verification) }
     }
@@ -388,7 +497,9 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             }
             return true
         } catch {
-            onChange?(isHidden, String(format: menuBoxLocalized("Could not restore the menu bar: %@"), error.localizedDescription))
+            isRestoring = true
+            report(isHidden, title: "Couldn’t restore menu bar settings",
+                   message: String(format: menuBoxLocalized("Could not restore the menu bar: %@"), error.localizedDescription))
             return false
         }
     }
@@ -413,13 +524,15 @@ final class NativeMenuBarHiding: @unchecked Sendable {
         let current = generation
         operation = Task { @MainActor [weak self] in
             guard let self else { return }
+            var lastError: Error = NativeMenuBarSnapshot.Failure.restorationPending
             for attempt in 0...self.timing.retries.count {
                 do {
                     let delay = attempt == 0 ? self.timing.verification : self.timing.retries[attempt - 1]
                     try await Task.sleep(nanoseconds: delay)
                     try Task.checkCancellation()
                     guard self.generation == current else { return }
-                    if let baseline = self.baseline {
+                    try self.backend.restore()
+                    if let baseline = self.baseline, !self.backend.settingsRestoreIsAuthoritative {
                         let actual = try self.backend.capture(false)
                         // A terminated app cannot republish an icon. Live backends
                         // resolve journal owners to currently running applications.
@@ -433,6 +546,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                     return
                 } catch {
                     guard !Task.isCancelled, self.generation == current else { return }
+                    lastError = error
                     self.trace("show verification pending (attempt \(attempt + 1)): \(error)")
                 }
             }
@@ -441,7 +555,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
             self.isTransitioning = false
             if !self.reportedRestoreFailure {
                 self.reportedRestoreFailure = true
-                self.onChange?(false, NativeMenuBarSnapshot.Failure.restorationPending.localizedDescription)
+                self.report(false, title: "Couldn’t restore menu bar settings", message: lastError.localizedDescription)
             }
         }
     }
@@ -526,7 +640,7 @@ final class NativeMenuBarHiding: @unchecked Sendable {
     }
 
     @MainActor private func startHelper() async throws {
-        guard let executable = Bundle.main.executableURL else { throw NativeMenuBarPreferences.Failure.access }
+        guard let executable = Bundle.main.executableURL else { throw HelperFailure.unavailable }
         let process = Process()
         let lifetime = Pipe(), output = Pipe()
         process.executableURL = executable
@@ -549,12 +663,12 @@ final class NativeMenuBarHiding: @unchecked Sendable {
                 group.addTask {
                     try await Task.sleep(nanoseconds: 3_000_000_000)
                     if process.isRunning { process.terminate() }
-                    throw NativeMenuBarPreferences.Failure.access
+                    throw HelperFailure.unavailable
                 }
                 defer { group.cancelAll() }
                 return try await group.next() ?? ""
             }
-            guard response == "READY\n", process.isRunning else { throw NativeMenuBarPreferences.Failure.access }
+            guard response == "READY\n", process.isRunning else { throw HelperFailure.unavailable }
             keepAlive = lifetime.fileHandleForWriting
             helper = process
             process.terminationHandler = { [weak self] _ in

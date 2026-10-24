@@ -213,7 +213,7 @@ struct NativeMenuBarSnapshot {
         return reference
     }
 
-    func plan() throws -> MenuBarSectionPlanner.Plan {
+    func plan(allowPartial: Bool = false) throws -> MenuBarSectionPlanner.Plan {
         guard !bars.isEmpty else { throw Failure.incomplete }
         // Validate each display's boundary directly. A fully expanded external
         // reference display is not required for a laptop-only overflow layout.
@@ -230,7 +230,26 @@ struct NativeMenuBarSnapshot {
             }
             return .init(id: bar.id, frame: bar.frame, items: items, isResolved: true)
         }
-        return try MenuBarSectionPlanner.plan(displays: displays)
+        return try allowPartial ? MenuBarSectionPlanner.partialPlan(displays: displays) : MenuBarSectionPlanner.plan(displays: displays)
+    }
+
+    func excluding(_ exclusions: [MenuBarSectionPlanner.Exclusion]) -> NativeMenuBarSnapshot {
+        let owners = Set(exclusions.map(\.owner))
+        return .init(bars: bars.map { bar in
+            Bar(frame: bar.frame, items: bar.items.filter { item in
+                !owners.contains(usesSystemControl(item) ? .system(item.id) : .application(item.bundle))
+            })
+        }, executables: executables, applicationControlBundles: applicationControlBundles)
+    }
+
+    func includingExcluded(from actual: NativeMenuBarSnapshot,
+                           exclusions: [MenuBarSectionPlanner.Exclusion]) -> NativeMenuBarSnapshot {
+        let included = actual.excluding(exclusions)
+        return .init(bars: bars.map { bar in
+            let accepted = Set(included.bars.first { $0.id == bar.id }?.items.map(\.id) ?? [])
+            let omitted = actual.bars.first { $0.id == bar.id }?.items.filter { !accepted.contains($0.id) } ?? []
+            return Bar(frame: bar.frame, items: bar.items + omitted)
+        }, executables: executables, applicationControlBundles: applicationControlBundles)
     }
 
     /// Manufacturer is not a capability. Independently owned app records take

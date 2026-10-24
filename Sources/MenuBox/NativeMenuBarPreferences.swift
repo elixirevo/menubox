@@ -36,12 +36,14 @@ final class NativeMenuBarPreferences {
         let locations: [Any]
     }
     enum Failure: MenuBoxLocalizedError {
-        case access, schema, missing(String), shared(String), concurrentChange, write
+        case access, schema, missing(String), ambiguous(String), disabled(String), shared(String), concurrentChange, write
         func errorDescription(using localizer: AppLocalizer) -> String {
             switch self {
             case .access: return menuBoxLocalized("MenuBox needs Full Disk Access to hide icons on macOS 27.", localizer: localizer)
             case .schema: return menuBoxLocalized("The menu bar settings format is not supported.", localizer: localizer)
             case .missing(let app): return String(format: menuBoxLocalized("Cannot resolve menu bar settings for %@.", localizer: localizer), app)
+            case .ambiguous(let app): return String(format: menuBoxLocalized("More than one menu bar setting controls %@.", localizer: localizer), app)
+            case .disabled(let app): return String(format: menuBoxLocalized("%@ is already disabled in macOS menu bar settings, but its icon is still present.", localizer: localizer), app)
             case .shared(let app): return String(format: menuBoxLocalized("Hiding %@ would also affect an icon outside the selected section.", localizer: localizer), app)
             case .concurrentChange: return menuBoxLocalized("Menu bar settings changed. Please try again.", localizer: localizer)
             case .write: return menuBoxLocalized("macOS did not confirm the menu bar setting change.", localizer: localizer)
@@ -100,10 +102,11 @@ final class NativeMenuBarPreferences {
         guard !selected.contains(ownBundle) else { throw Failure.shared(ownBundle) }
         if let host = selected.intersection(sharedSystemHosts).sorted().first { throw Failure.shared(host) }
         var keys = Set<String>()
-        for app in selected {
+        for app in selected.sorted() {
             let candidates = controllingRecords(for: app, executables: executables, in: document)
-            guard candidates.count == 1, let key = candidates.first,
-                  let record = document.records[key], record.allowed else { throw Failure.missing(app) }
+            guard candidates.count <= 1 else { throw Failure.ambiguous(app) }
+            guard let key = candidates.first, let record = document.records[key] else { throw Failure.missing(app) }
+            guard record.allowed else { throw Failure.disabled(app) }
             let affected = Set(record.locations.compactMap { affectedBundle($0, executables: executables) }).union([key])
             guard !affected.contains(ownBundle), affected.isDisjoint(with: sharedSystemHosts),
                   affected.intersection(visible).isSubset(of: selected) else {

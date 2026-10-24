@@ -8,7 +8,7 @@ import MacAppCore
 /// Pure eligibility check for an app-wide backend. Feed only resolved hosting
 /// snapshots; this does not infer visibility from AX rectangle containment.
 enum MenuBarSectionPlanner {
-    enum Owner: Equatable {
+    enum Owner: Hashable {
         case box
         case marker
         case application(String) // Backend control key, including helper attribution.
@@ -32,6 +32,80 @@ enum MenuBarSectionPlanner {
         let applicationKeys: Set<String>
         let protectedItemsByDisplay: [String: Set<String>]
         let systemItemIDs: Set<String>
+        var exclusions: [Exclusion] = []
+
+        func excluding(_ owner: Owner, reason: String) -> Plan {
+            var apps = applicationKeys, systems = systemItemIDs
+            if case .application(let key) = owner { apps.remove(key) }
+            if case .system(let key) = owner { systems.remove(key) }
+            var result = Plan(applicationKeys: apps, protectedItemsByDisplay: protectedItemsByDisplay,
+                              systemItemIDs: systems, exclusions: exclusions)
+            if !result.exclusions.contains(where: { $0.owner == owner }) {
+                result.exclusions.append(Exclusion(owner: owner, reason: reason))
+            }
+            return result
+        }
+    }
+
+    struct Exclusion: Equatable {
+        let owner: Owner
+        // Localized when presented, so app language selection applies to notices too.
+        let reason: String
+        var identifier: String {
+            switch owner {
+            case .application(let key), .system(let key): return key
+            case .box, .marker: return "MenuBox"
+            }
+        }
+    }
+
+    /// Remove only owners whose geometry/section cannot be safely determined.
+    /// Invalid displays or our own controls still invalidate the whole boundary.
+    static func partialPlan(displays: [Display]) throws -> Plan {
+        var excluded: [Owner: String] = [:]
+        func exclude(_ item: Item, _ reason: String) {
+            switch item.owner {
+            case .application, .system: excluded[item.owner] = reason
+            case .box, .marker: break
+            }
+        }
+        for display in displays {
+            guard let marker = display.items.first(where: { $0.owner == .marker }) else { continue }
+            for item in display.items {
+                if !valid(item.frame) || !display.frame.contains(item.frame) {
+                    exclude(item, "The icon’s size or position could not be read.")
+                }
+            }
+            let validItems = display.items.filter { valid($0.frame) && display.frame.contains($0.frame) }
+            for (index, item) in validItems.enumerated() {
+                for other in validItems.dropFirst(index + 1) where item.frame.intersects(other.frame) &&
+                    item.frame.intersection(other.frame).width > 0 {
+                    if item.frame.maxX <= marker.frame.minX && other.frame.maxX <= marker.frame.minX &&
+                        item.owner != .box && other.owner != .box { continue }
+                    exclude(item, "The icon overlaps another icon near the marker.")
+                    exclude(other, "The icon overlaps another icon near the marker.")
+                }
+            }
+        }
+        func filtered() -> [Display] {
+            displays.map { Display(id: $0.id, frame: $0.frame,
+                items: $0.items.filter { excluded[$0.owner] == nil }, isResolved: $0.isResolved) }
+        }
+        while true {
+            do {
+                var result = try plan(displays: filtered())
+                result.exclusions = excluded.map { Exclusion(owner: $0.key, reason: $0.value) }
+                    .sorted { $0.identifier < $1.identifier }
+                return result
+            } catch Failure.applicationSpansBoundary(let key) {
+                // App and system identifiers can coincide; exclude both namespaces.
+                for display in displays {
+                    for item in display.items where item.owner == .application(key) || item.owner == .system(key) {
+                        exclude(item, "The same app or control appears on both sides of the marker.")
+                    }
+                }
+            }
+        }
     }
 
     enum Failure: MenuBoxLocalizedError, Equatable {

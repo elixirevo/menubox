@@ -118,3 +118,48 @@
 "Allow Screen Recording access, then restart the app." = "화면 기록 권한을 허용한 후 앱을 다시 실행해 주세요.";
 "Failed" = "실패";
 "Menu bar hiding is not supported on this version of macOS yet. MenuBox and system icons will stay visible. Box UI is still available." = "이 macOS 버전에서는 아직 메뉴바 숨기기를 지원하지 않습니다. MenuBox와 시스템 아이콘은 계속 표시됩니다. Box UI는 사용할 수 있습니다.";
+
+/* Partial hiding and recovery diagnostics */
+"The icon’s size or position could not be read." = "아이콘의 크기나 위치를 읽지 못했습니다.";
+"The icon overlaps another icon near the marker." = "마커 주변에서 다른 아이콘과 겹칩니다.";
+"The same app or control appears on both sides of the marker." = "같은 앱 또는 시스템 아이콘이 마커 양쪽에 있습니다.";
+"No menu bar setting was found for this app." = "이 앱의 메뉴바 설정 항목을 찾지 못했습니다.";
+"More than one setting controls this icon." = "이 아이콘을 제어하는 설정 항목이 여러 개여서 하나로 특정하지 못했습니다.";
+"macOS already marks this icon as disabled, but it is still visible." = "macOS 설정에는 이미 표시 금지로 되어 있지만 아이콘이 계속 보입니다.";
+"Changing this setting would also affect icons that must stay visible." = "이 설정을 바꾸면 표시를 유지해야 하는 다른 아이콘도 영향을 받습니다.";
+"This macOS control does not have a supported hiding setting." = "이 시스템 아이콘의 개별 숨김 설정은 아직 지원하지 않습니다.";
+"This macOS control’s setting has an unsupported format." = "이 시스템 아이콘의 설정 형식을 지원하지 않습니다.";
+"macOS did not hide this icon after repeated attempts. Its original setting was restored." = "여러 번 요청했지만 macOS가 아이콘을 숨기지 않아 이 항목의 설정을 원래대로 돌렸습니다.";
+"More than one menu bar setting controls %@." = "%@의 메뉴바 설정 항목이 여러 개여서 하나로 특정하지 못했습니다.";
+"%@ is already disabled in macOS menu bar settings, but its icon is still present." = "%@은(는) macOS 메뉴바 설정에서 이미 표시 금지 상태이지만 아이콘이 계속 보입니다.";
+"The icon recovery helper could not start. Restart MenuBox and check its menu bar permissions." = "아이콘 복구용 보조 프로세스를 준비하지 못했습니다. MenuBox를 다시 실행하고 메뉴바 접근 권한을 확인해 주세요.";
+"Couldn’t hide menu bar icons" = "메뉴바 아이콘 숨김을 시작하지 못했습니다";
+"Some icons were left visible" = "일부 아이콘을 숨김에서 제외했습니다";
+"No icons could be hidden" = "숨길 수 있는 아이콘이 없습니다";
+"Couldn’t apply menu bar settings" = "메뉴바 숨김 설정을 적용하지 못했습니다";
+"Couldn’t restore excluded icons" = "제외한 아이콘의 설정을 복원하지 못했습니다";
+"Couldn’t verify icon hiding" = "아이콘 숨김 결과를 확인하지 못했습니다";
+"Couldn’t restore menu bar settings" = "이전 메뉴바 설정을 복원하지 못했습니다";
+"Couldn’t prepare icon recovery" = "아이콘 복구 기능을 준비하지 못했습니다";
+"Couldn’t read the menu bar layout" = "메뉴바 아이콘 정보를 읽지 못했습니다";
+"Couldn’t determine which icons to hide" = "숨길 아이콘의 범위를 확인하지 못했습니다";
+"Couldn’t read menu bar settings" = "메뉴바 숨김 설정을 읽지 못했습니다";
+"The saved icon recovery record is damaged. MenuBox kept it to avoid losing the original settings." = "저장된 아이콘 복구 기록이 손상되어 원래 설정을 확인하지 못했습니다. 원래 설정의 유실을 방지하기 위해 기록을 보존했습니다.";
+
+/* Concise exclusion notices and system icon names */
+"Hiding is not supported yet." = "아직 숨김을 지원하지 않습니다.";
+"Other icons remain hidden." = "나머지 아이콘은 숨겨져 있습니다.";
+"No icons were hidden." = "숨겨진 아이콘은 없습니다.";
+"AirDrop" = "AirDrop";
+"Bluetooth" = "Bluetooth";
+"Now Playing" = "지금 재생 중";
+"Input Menu" = "입력 메뉴";
+"Sound" = "사운드";
+"Wi-Fi" = "Wi-Fi";
+"Battery" = "배터리";
+"Focus" = "집중 모드";
+"Screen Mirroring" = "화면 미러링";
+"Display" = "디스플레이";
+"Timer" = "타이머";
+
+"Don’t show again" = "다시 보지 않음";

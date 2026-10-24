@@ -32,6 +32,7 @@ final class BoxWindowController: NSObject {
     private var activeProxyMenu: NSMenu?
     private let settingsStore: SettingsStore
     private var hidingError: String?
+    private var hidingNoticeIdentifier: String?
     var onForwardedClick: ((MenuBarProxyClick, CGMouseButton) -> Void)?
     var onClose: (() -> Void)?
     var onMenuInteractionEnded: (() -> Void)?
@@ -198,16 +199,21 @@ final class BoxWindowController: NSObject {
         if existingPanel == nil { installDismissMonitors(panel: panel) }
     }
 
-    func showHidingError(_ message: String, anchorFrame: NSRect, screen: NSScreen) {
-        if hidingError == message, isShowing { return }
+    func showHidingError(_ message: String, title errorTitle: String? = nil, noticeIdentifier: String? = nil,
+                         anchorFrame: NSRect, screen: NSScreen) {
+        let resolvedTitle = errorTitle ?? menuBoxLocalized("Couldn’t update menu bar icons")
+        let identifier = noticeIdentifier ?? HidingNoticeIdentity.message(title: resolvedTitle, message: message)
+        guard settingsStore.shouldShowHidingNotice(identifier) else { return }
+        if hidingNoticeIdentifier == identifier, isShowing { return }
         close()
         hidingError = message
+        hidingNoticeIdentifier = identifier
         let width = min(420, screen.visibleFrame.width - 32)
         let text = NSTextField(wrappingLabelWithString: message)
         text.font = .systemFont(ofSize: 13)
         text.isSelectable = true
         let textHeight = text.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width - 32, height: 10_000)).height ?? 60
-        let height = textHeight + 102
+        let height = min(textHeight + 102, screen.visibleFrame.height - 32)
         let frame = MenuBarGeometry.clamp(NSRect(x: anchorFrame.midX - width / 2,
             y: MenuBarGeometry.menuBarRect(for: screen).minY - height - 6, width: width, height: height),
             to: screen.visibleFrame.insetBy(dx: 8, dy: 8))
@@ -223,7 +229,7 @@ final class BoxWindowController: NSObject {
         content.wantsLayer = true
         content.layer?.cornerRadius = 12
         content.layer?.masksToBounds = true
-        let title = NSTextField(labelWithString: menuBoxLocalized("Couldn’t update menu bar icons"))
+        let title = NSTextField(labelWithString: resolvedTitle)
         title.font = .boldSystemFont(ofSize: 13)
         title.frame = NSRect(x: 16, y: height - 36, width: width - 32, height: 20)
         text.frame = NSRect(x: 16, y: 54, width: width - 32, height: textHeight)
@@ -231,7 +237,20 @@ final class BoxWindowController: NSObject {
         dismiss.bezelStyle = .rounded
         dismiss.keyEquivalent = "\r"
         dismiss.frame = NSRect(x: width - 88, y: 12, width: 72, height: 28)
-        [title, text, dismiss].forEach { content.addSubview($0) }
+        let suppress = NSButton(title: menuBoxLocalized("Don’t show again"), target: self, action: #selector(suppressHidingNotice))
+        suppress.identifier = NSUserInterfaceItemIdentifier("MenuBox.suppressHidingNotice")
+        suppress.bezelStyle = .rounded
+        suppress.sizeToFit()
+        suppress.frame = NSRect(x: 16, y: 12, width: min(suppress.frame.width + 12, width - 120), height: 28)
+        [title, dismiss, suppress].forEach { content.addSubview($0) }
+        if textHeight > height - 102 {
+            let scroll = NSScrollView(frame: NSRect(x: 16, y: 54, width: width - 32, height: height - 102))
+            scroll.hasVerticalScroller = true
+            scroll.drawsBackground = false
+            text.frame = NSRect(x: 0, y: 0, width: width - 48, height: textHeight + 32)
+            scroll.documentView = text
+            content.addSubview(scroll)
+        } else { content.addSubview(text) }
         panel.contentView = content
         self.panel = panel
         panel.orderFrontRegardless()
@@ -322,7 +341,13 @@ final class BoxWindowController: NSObject {
         menu.popUp(positioning: nil, at: localPoint, in: contentView)
     }
 
+    @objc private func suppressHidingNotice() {
+        if let identifier = hidingNoticeIdentifier { settingsStore.suppressHidingNotice(identifier) }
+        close()
+    }
+
     @objc func close() {
+        hidingNoticeIdentifier = nil
         hidingError = nil
         forwardedClickRestoreWorkItem?.cancel()
         forwardedClickRestoreWorkItem = nil

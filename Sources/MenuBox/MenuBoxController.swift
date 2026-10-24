@@ -105,7 +105,7 @@ final class MenuBoxController: NSObject {
     private var hiddenMenuTask: Task<Void, Never>?
     private var pendingMenuPlacementRestore: (token: UUID, target: MenuBarProxyTarget, display: CGRect)?
     private var isHidden = false
-    private var lastHidingError: String?
+    private var lastHidingNoticeID: String?
     private var usesNativeHiding: Bool {
         ProcessInfo.processInfo.operatingSystemVersion.majorVersion == 27
     }
@@ -117,7 +117,7 @@ final class MenuBoxController: NSObject {
         hiding.onChange = { [weak self] hidden, error in
             guard let self else { return }
             self.isHidden = hidden
-            if hidden, error == nil { self.lastHidingError = nil }
+            if hidden, error == nil { self.lastHidingNoticeID = nil }
             self.statusItem?.button?.toolTip = error ?? "MenuBox"
             if let error { self.showHidingError(error) }
             if error == nil {
@@ -421,7 +421,7 @@ final class MenuBoxController: NSObject {
     }
 
     private func revealMenuBarIcons() {
-        lastHidingError = nil
+        lastHidingNoticeID = nil
         hiddenMenuTask?.cancel()
         try? NativeMenuBarPlacement.restore()
         hideWhenPermissionsReady = false
@@ -431,7 +431,7 @@ final class MenuBoxController: NSObject {
     }
 
     private func hideHiddenIcons() {
-        lastHidingError = nil
+        lastHidingNoticeID = nil
         autoHideTimer?.invalidate()
         autoHideTimer = nil
         captureTask?.cancel()
@@ -1639,11 +1639,13 @@ final class MenuBoxController: NSObject {
         permissions.refresh()
         // Missing access has its own actionable settings page, not a transient
         // Box error. PermissionStore presents it once per loss of access.
-        guard permissions.snapshot.isReady, message != lastHidingError,
+        let identifier = nativeHiding.noticeIdentifier ?? HidingNoticeIdentity.message(title: nativeHiding.noticeTitle, message: message)
+        guard permissions.snapshot.isReady, identifier != lastHidingNoticeID,
               let screen = MenuBarGeometry.screen(containing: NSEvent.mouseLocation) else { return }
         boxDisplayID = screen.menuBoxDisplayId
         let frame = boxAnchorFrame ?? MenuBarGeometry.menuBarRect(for: screen)
-        lastHidingError = message
-        boxWindowController.showHidingError(message, anchorFrame: frame, screen: screen)
+        lastHidingNoticeID = identifier
+        boxWindowController.showHidingError(message, title: nativeHiding.noticeTitle, noticeIdentifier: identifier,
+                                           anchorFrame: frame, screen: screen)
     }
 }

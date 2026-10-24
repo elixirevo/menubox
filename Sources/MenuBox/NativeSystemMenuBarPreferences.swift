@@ -43,6 +43,26 @@ enum NativeSystemMenuBarPreferences {
         var host: CFString { self == .inputMenu ? kCFPreferencesAnyHost : kCFPreferencesCurrentHost }
         var hiddenValue: Value { self == .inputMenu ? .boolean(false) : .integer(8) }
     }
+    /// Presentation names are independent of hiding support. Knowing the name
+    /// of a control does not authorize writing a guessed visibility preference.
+    static func displayName(for itemID: String, localizer: AppLocalizer = .current) -> String {
+        let names = [
+            "com.apple.MenuBarAgent:com.apple.menuextra.airdrop": "AirDrop",
+            "com.apple.MenuBarAgent:com.apple.menuextra.bluetooth": "Bluetooth",
+            "com.apple.MenuBarAgent:com.apple.menuextra.now-playing": "Now Playing",
+            "com.apple.TextInputMenuAgent:0": "Input Menu",
+            "com.apple.MenuBarAgent:com.apple.menuextra.sound": "Sound",
+            "com.apple.MenuBarAgent:com.apple.menuextra.wifi": "Wi-Fi",
+            "com.apple.MenuBarAgent:com.apple.menuextra.battery": "Battery",
+            "com.apple.MenuBarAgent:com.apple.menuextra.focusmode": "Focus",
+            "com.apple.MenuBarAgent:com.apple.menuextra.screen-mirroring": "Screen Mirroring",
+            "com.apple.MenuBarAgent:com.apple.menuextra.display": "Display",
+            "com.apple.MenuBarAgent:com.apple.menuextra.timer": "Timer"
+        ]
+        // Preserve unknown identities rather than guessing an unrelated name.
+        return names[itemID].map { menuBoxLocalized($0, localizer: localizer) } ?? itemID
+    }
+
     enum Value: Codable, Equatable {
         case boolean(Bool), integer(Int)
         var object: NSNumber {

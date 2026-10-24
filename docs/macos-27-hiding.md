@@ -25,18 +25,18 @@ The historical disappearance of both own controls under the removed assessment i
 
 - `NativeMenuBarPreferences` uses the actual `group.com.apple.controlcenter` container and Foundation's private `NSUserDefaults._initWithSuiteName:container:` initializer. It first requires an ordinary file read with user-approved Full Disk Access, validates the existing plist schema, and edits only selected records. No Apple-only entitlement or TCC database edit is used.
 - `NativeMenuBarSnapshot` reads MenuBarAgent hosting groups on every display, distinguishes the box from the marker, and validates each display’s boundary, including laptop-only overflow placeholders wholly left of the marker. Inactive replicas without identifiers use MenuBox's own control order from an identified replica, not a fixed distance from the screen edge. Contradictory identifiers, missing controls and overlapping controls remain errors.
-- When MenuBarAgent publishes duplicate windows for one display, snapshot selection prefers usable item sizes and positions before AX identifier coverage. Whole observations remain intact; malformed items are not removed to make hiding pass. An intentionally collapsed MenuBox marker remains valid during hidden-state capture.
-- `MenuBarSectionPlanner` selects items wholly left of the marker. Displays may contain different apps and system controls. Applications or system controls appearing on opposite sides across displays, and ambiguous marker/control geometry, are rejected before mutation. Individual system identifiers are selected separately from application bundles.
-- Apple bundle prefixes do not determine the hiding backend. Live snapshots discover independent app ownership in `trackedApplications`, including helper bundle/executable attribution. Such records use the common application path regardless of vendor; a known independent control uses its dedicated adapter only when no independent app record is available. Unknown standalone apps also enter common ownership validation, where missing records retry and ambiguous/shared ownership fails before writes. MenuBarAgent, SystemUIServer and Control Center remain shared hosts and cannot be hidden as whole applications. The same routing applies to items arriving while a section is hidden. Temporary menu placement accepts independently identified Apple status items and keeps the shared-host protection.
+- When MenuBarAgent publishes duplicate windows for one display, snapshot selection prefers usable item sizes and positions before AX identifier coverage. Whole observations remain intact; partial planning records malformed owners as exclusions instead of mutating their settings. An intentionally collapsed MenuBox marker remains valid during hidden-state capture.
+- `MenuBarSectionPlanner` selects items wholly left of the marker. Displays may contain different apps and system controls. Applications or system controls appearing on opposite sides across displays are excluded. Invalid MenuBox controls or unresolved display boundaries still prevent mutation. Individual system identifiers are selected separately from application bundles.
+- Apple bundle prefixes do not determine the hiding backend. Live snapshots discover independent app ownership in `trackedApplications`, including helper bundle/executable attribution. Such records use the common application path regardless of vendor; a known independent control uses its dedicated adapter only when no independent app record is available. Unknown standalone apps also enter common ownership validation, where missing, disabled, ambiguous or shared records are excluded before writes; remaining owners are revalidated until no collateral changes are possible. MenuBarAgent, SystemUIServer and Control Center remain shared hosts and cannot be hidden as whole applications. The same routing applies to items arriving while a section is hidden. Temporary menu placement accepts independently identified Apple status items and keeps the shared-host protection.
 - The five-second inventory check also detects missing MenuBox display hosts. Two consecutive observations trigger re-registration of only MenuBox's own status items, preserving autosave names and the marker's collapsed state, with a 30-second repair cooldown. Ordinary hide/reveal continues to retain the marker. Box UI uses the invoking display's hosted box frame instead of a window frame that may belong to another display.
-- `NativeSystemMenuBarPreferences` maps Now Playing, Text Input, Sound, Wi-Fi, Battery, Focus, Screen Mirroring, Display and Timer to individual visibility preferences. Control Center values use the current-host domain; Text Input uses its own domain. Original values, including absent defaults, are journaled and restored. Transient `plus` and `com.apple.menuextra.audiovideo` indicators stay visible and are excluded from section membership and verification; their appearance cannot block app hiding or trigger a restore. Other unsupported system identifiers fail before mutation; no global restriction or app-wide MenuBarAgent flag is used.
+- `NativeSystemMenuBarPreferences` maps Now Playing, Text Input, Sound, Wi-Fi, Battery, Focus, Screen Mirroring, Display and Timer to individual visibility preferences. Control Center values use the current-host domain; Text Input uses its own domain. Original values, including absent defaults, are journaled and restored. Transient `plus` and `com.apple.menuextra.audiovideo` indicators stay visible and are excluded from section membership and verification; their appearance cannot block app hiding or trigger a restore. Other unsupported system identifiers are excluded before mutation; no global restriction or app-wide MenuBarAgent flag is used.
 - Selected app records are checked for helper/executable attribution and collateral effects on visible right-side items. If a live selected record owner's own identity is missing, its bundle location is appended without removing existing locations. This correction is retained on reveal; the previous allowed flags are restored.
 - `NativeMenuBarHiding` saves a recovery journal, writes application visibility changes and hides its own marker in the same main-actor pass. One verification loop then checks the selected apps and marker are absent while the box and right-side controls remain. This removes the separate verification wait that delayed the marker. Rapid toggles cancel stale operations. Write failures restore visibility; temporary AX unavailability while checking an applied transaction retains its hidden settings.
 - Box UI retains the selected applications and marker boundary while the marker is hidden. It first tries readable native menus without revealing icons. If unavailable on macOS 27, it briefly shows only the selected app, generates its menu, reads attached or app-owned on-screen AX popup roots, keeps the original popup when it is already beside Box, and uses a proxy for menus anchored elsewhere. Native presentation holds the selected-app visibility lease until dismissal and lets the app execute commands directly. Forwarded events preserve the physical pointer; host/menu observation uses short initial intervals. Selection reacquires the current menu and executes its AX action before releasing the visibility lease. Other hidden apps and the marker remain hidden. See [native menu behavior and verification](box-native-menus.md).
 - Sleep cancels observation without restoring preferences, the marker, or the original recovery journal. Wake immediately checks the retained transaction. Duplicate wake/focus/application/display/Space notifications coalesce without resetting ongoing work. Reappearing targets use the existing journal to reapply hidden values; unavailable AX trees retry without revealing. A changed display or membership must be observed twice. On unchanged displays, new items extend the existing transaction and recovery journal without restoring the marker or prior icons; uncertain additions are deferred. Display-topology changes still restore the marker and replan. See [Box inventory and incremental updates](box-inventory.md). Explicit reveal cancels all pending checks.
 - Container preference writes explicitly publish `group.com.apple.controlcenter` through `_CFPreferencesPostValuesChangedInDomains` after successful synchronization and read-back. On macOS 27.0.1, opening a fresh System Settings Menu Bar pane can leave MenuBarAgent using its old allow-list despite the stored flags and Settings switches being updated. The external domain-change notification invalidates that stale view. Idempotent recovery/reapply also republishes the domain. This private API shares the backend's macOS 27 compatibility limit; unavailable symbols report a write failure. System Settings does not pause hiding.
-- Reveal is a verified transition. The original section and Box inventory membership remain available until the selected running apps return on the current displays. Automatic re-hiding cannot turn a still-missing section into a new empty plan. Exhausted observations retain recovery information and report a pending restore once; focus/inventory/wake events can continue verification. A manual hide request waits for the restore acknowledgement.
-- `NativeMenuBarRecovery` restores prior visibility on show, normal exit and next launch. A second copy of the installed executable proves its own preferences access, then waits for the main process's lifetime pipe to close. Parent crashes trigger journal recovery. Recovery writes and completion are separate: the helper observes returning app hosts before deleting the journal, and retains it on timeout for the next launch. New journals retain the selected live app identities as well as their preference owners.
+- Reveal is a verified settings transition. The live backend confirms restored app and system settings before clearing recovery state. It does not wait indefinitely for an app to publish its icon. Actual settings failures retain recovery state, report their cause, and retry restoration on later requests or environment events.
+- `NativeMenuBarRecovery` restores prior visibility on show, normal exit and next launch. A second copy of the installed executable proves its own preferences access, then waits for the main process's lifetime pipe to close. Parent crashes trigger journal recovery. Recovery writes and completion are separate: the helper verifies restored settings before deleting the journal, and retains it on settings failure for the next launch. New journals retain the selected live app identities as well as their preference owners.
 - The last 80 state transitions are retained locally in `~/Library/Application Support/MenuBox/Diagnostics/native-hiding.log` to distinguish user show/hide commands from verification failures and environment changes.
 
 ## Verification
@@ -110,3 +110,68 @@ Two read-only snapshots from the local 1.5.5 failure contained duplicate 1728 ×
 Native hiding, restoration, placement and preference errors, the error panel title/button, and menu-opening failure messages use the app's existing English/Korean language selection. System language resolution and the existing restart requirement remain unchanged. Regression coverage includes duplicate order, richer identifiers on an invalid candidate, malformed-only captures, collapsed markers, English/Korean descriptions and format arguments. Local evidence is retained in `artifacts/2026-10-20-geometry-diagnosis/`.
 
 Validation: XCTest ran 220 tests with zero failures and two opt-in tests skipped; the error-panel test also passed with the Korean app-language argument. A Developer ID signed arm64 build was placed at `dist/MenuBox.app` and relaunched. The live log confirmed ten application owners hidden, and the subsequent AX snapshot contained none of those owners on any of the three connected displays while retaining MenuBox's full-width Box host. Physical sleep/wake and display reconnection were not repeated.
+
+
+## Partial hiding and settings-based recovery (2026-10-24)
+
+An individual icon no longer vetoes an otherwise valid section. Partial planning
+excludes owners with unreadable geometry, overlaps or cross-boundary membership.
+Preference preflight excludes missing, ambiguous, already-disabled and collateral
+owners, plus unsupported system controls. Exclusions apply across displays. A
+fixed-point check protects shared settings when excluding one sibling makes
+another sibling unsafe. Displays and MenuBox's own controls must still be valid.
+
+After bounded reapplication, targets still present in a readable snapshot are
+removed from the active plan. Their original flags are restored while successful
+targets stay hidden. The full journal remains in place until that selective
+restore succeeds, then it is narrowed atomically. Exclusions survive environment
+checks and section extensions for that transaction; a new explicit hide evaluates
+them again. If every target is excluded, the marker remains visible and the UI
+does not claim a hidden state. Unknown AX state alone still does not trigger a
+rollback.
+
+Recovery completion now verifies persisted app and system settings instead of
+waiting for every app to create a new icon host. Removed app records are skipped,
+not recreated. Actual preference-write failures retain the journal and report
+the underlying cause; later retries repeat restoration. Damaged recovery records
+are preserved and explicitly reported, never silently deleted or interpreted as
+missing permissions. This removes the indefinite host-publication wait across
+reboots without discarding unverified original settings.
+
+Notices distinguish layout reading, section planning, settings reading/applying,
+partial exclusion and restoration failures. English and Korean notices name each
+excluded owner and its reason; long lists scroll. The app's name is used when
+available, otherwise the owner identifier is shown.
+
+Validation: 235 XCTest tests, 233 passed and two opt-in live tests skipped. New
+coverage includes individual and total nonresponse, shared-setting isolation,
+invalid geometry, unsupported controls, obsolete recovery entries, narrowed
+journals, failed restore writes, localized reasons and long notice panels. Adobe
+Creative Cloud on the reporter's machine, a physical reboot and a real display
+reconnection have not been reproduced by these tests.
+
+A Developer ID signed arm64 build was installed at `dist/MenuBox.app` and relaunched. The live verifier confirmed ten application owners hidden after launch; the recovery helper was running. The previous signed app and build/test/live logs are retained under `artifacts/2026-10-24-partial-hiding/`. This local build has not been published as a new release.
+
+Partial notices now group owners with the same reason and show localized names for known system controls, including AirDrop and Bluetooth. The unsupported-control notice uses a short reason followed by the remaining-hidden status. Unknown identifiers stay literal rather than being assigned guessed names. The focused localization and error-panel suite passed all eight tests.
+
+
+## Repeated notice suppression (2026-10-24)
+
+The notice panel includes **Don’t show again** / **다시 보지 않음** alongside OK.
+Only that button persists suppression; OK and outside-click dismissal do not.
+The last suppressed identity is stored separately from AppSettings in UserDefaults
+and survives app restart. A different notice clears that choice, so changed
+membership, causes or a transition from partial success to no hidden icons are
+shown again. Returning to the old set after a different notice is also a change.
+Resetting app settings clears suppression.
+
+Partial-notice identities use sorted owner types, identifiers, reason keys and
+outcome, hashed with a version prefix. They do not depend on localization, app
+display names, item order or geometry. Other errors use the title and message as
+their identity. Suppression affects only presentation, never hiding, recovery,
+permissions, tooltips or diagnostics.
+
+Validation: 238 XCTest tests, 236 passed and two opt-in live tests skipped. Added
+coverage checks persistence through store recreation, reordered membership,
+added/removed owners, changed reasons/outcome, settings reset and the actual
+panel buttons, including OK versus persistent suppression.

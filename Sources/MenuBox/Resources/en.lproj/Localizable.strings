@@ -118,3 +118,48 @@
 "Allow Screen Recording access, then restart the app." = "Allow Screen Recording access, then restart the app.";
 "Failed" = "Failed";
 "Menu bar hiding is not supported on this version of macOS yet. MenuBox and system icons will stay visible. Box UI is still available." = "Menu bar hiding is not supported on this version of macOS yet. MenuBox and system icons will stay visible. Box UI is still available.";
+
+/* Partial hiding and recovery diagnostics */
+"The icon’s size or position could not be read." = "The icon’s size or position could not be read.";
+"The icon overlaps another icon near the marker." = "The icon overlaps another icon near the marker.";
+"The same app or control appears on both sides of the marker." = "The same app or control appears on both sides of the marker.";
+"No menu bar setting was found for this app." = "No menu bar setting was found for this app.";
+"More than one setting controls this icon." = "More than one setting controls this icon.";
+"macOS already marks this icon as disabled, but it is still visible." = "macOS already marks this icon as disabled, but it is still visible.";
+"Changing this setting would also affect icons that must stay visible." = "Changing this setting would also affect icons that must stay visible.";
+"This macOS control does not have a supported hiding setting." = "This macOS control does not have a supported hiding setting.";
+"This macOS control’s setting has an unsupported format." = "This macOS control’s setting has an unsupported format.";
+"macOS did not hide this icon after repeated attempts. Its original setting was restored." = "macOS did not hide this icon after repeated attempts. Its original setting was restored.";
+"More than one menu bar setting controls %@." = "More than one menu bar setting controls %@.";
+"%@ is already disabled in macOS menu bar settings, but its icon is still present." = "%@ is already disabled in macOS menu bar settings, but its icon is still present.";
+"The icon recovery helper could not start. Restart MenuBox and check its menu bar permissions." = "The icon recovery helper could not start. Restart MenuBox and check its menu bar permissions.";
+"Couldn’t hide menu bar icons" = "Couldn’t hide menu bar icons";
+"Some icons were left visible" = "Some icons were left visible";
+"No icons could be hidden" = "No icons could be hidden";
+"Couldn’t apply menu bar settings" = "Couldn’t apply menu bar settings";
+"Couldn’t restore excluded icons" = "Couldn’t restore excluded icons";
+"Couldn’t verify icon hiding" = "Couldn’t verify icon hiding";
+"Couldn’t restore menu bar settings" = "Couldn’t restore menu bar settings";
+"Couldn’t prepare icon recovery" = "Couldn’t prepare icon recovery";
+"Couldn’t read the menu bar layout" = "Couldn’t read the menu bar layout";
+"Couldn’t determine which icons to hide" = "Couldn’t determine which icons to hide";
+"Couldn’t read menu bar settings" = "Couldn’t read menu bar settings";
+"The saved icon recovery record is damaged. MenuBox kept it to avoid losing the original settings." = "The saved icon recovery record is damaged. MenuBox kept it to avoid losing the original settings.";
+
+/* Concise exclusion notices and system icon names */
+"Hiding is not supported yet." = "Hiding is not supported yet.";
+"Other icons remain hidden." = "Other icons remain hidden.";
+"No icons were hidden." = "No icons were hidden.";
+"AirDrop" = "AirDrop";
+"Bluetooth" = "Bluetooth";
+"Now Playing" = "Now Playing";
+"Input Menu" = "Input Menu";
+"Sound" = "Sound";
+"Wi-Fi" = "Wi-Fi";
+"Battery" = "Battery";
+"Focus" = "Focus";
+"Screen Mirroring" = "Screen Mirroring";
+"Display" = "Display";
+"Timer" = "Timer";
+
+"Don’t show again" = "Don’t show again";

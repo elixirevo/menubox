@@ -10,6 +10,20 @@ final class SettingsStore: ObservableObject {
 
     private let defaults: UserDefaults
     private let key = "MenuBox.AppSettings.v3"
+    private let suppressedHidingNoticeKey = "MenuBox.SuppressedHidingNotice.v1"
+
+    func shouldShowHidingNotice(_ identifier: String) -> Bool {
+        guard let suppressed = defaults.string(forKey: suppressedHidingNoticeKey) else { return true }
+        if suppressed == identifier { return false }
+        // A different notice invalidates the old choice, including when the
+        // affected set later changes back to a previously suppressed set.
+        defaults.removeObject(forKey: suppressedHidingNoticeKey)
+        return true
+    }
+
+    func suppressHidingNotice(_ identifier: String) {
+        defaults.set(identifier, forKey: suppressedHidingNoticeKey)
+    }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -57,6 +71,7 @@ final class SettingsStore: ObservableObject {
     }
 
     func resetToDefaults(preservingLoginItem: Bool = false) {
+        defaults.removeObject(forKey: suppressedHidingNoticeKey)
         var defaults = AppSettings.defaults
         if preservingLoginItem { defaults.launchAtLogin = settings.launchAtLogin }
         Self.normalize(&defaults)

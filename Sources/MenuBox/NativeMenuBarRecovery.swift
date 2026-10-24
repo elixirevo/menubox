@@ -2,8 +2,25 @@
 // MenuBox project-owned code. See LICENSE and TRADEMARKS.md for GPL section 7 terms.
 
 import AppKit
+import MacAppCore
 
 enum NativeMenuBarRecovery {
+    enum Failure: MenuBoxLocalizedError {
+        case damagedRecord
+        func errorDescription(using localizer: AppLocalizer) -> String {
+            menuBoxLocalized("The saved icon recovery record is damaged. MenuBox kept it to avoid losing the original settings.", localizer: localizer)
+        }
+    }
+
+    static func decodedJournal(_ data: Data) throws -> Journal {
+        do {
+            let journal = try PropertyListDecoder().decode(Journal.self, from: data)
+            let original = try NativeMenuBarPreferences.decode(journal.original)
+            _ = try restorationData(journal, current: original)
+            return journal
+        } catch { throw Failure.damagedRecord }
+    }
+
     struct Journal: Codable {
         let original: Data
         let written: Data
@@ -29,7 +46,7 @@ enum NativeMenuBarRecovery {
 
     static func restore() throws {
         guard hasPending else { return }
-        let journal = try PropertyListDecoder().decode(Journal.self, from: Data(contentsOf: journalURL))
+        let journal = try decodedJournal(Data(contentsOf: journalURL))
         let preferences = try NativeMenuBarPreferences()
         let current = try preferences.read()
         let restored = try restorationData(journal, current: current)
@@ -37,27 +54,76 @@ enum NativeMenuBarRecovery {
         try NativeSystemMenuBarPreferences.restore(journal.systemChanges ?? [])
     }
 
-    /// A preference write is not an acknowledgement from MenuBarAgent.
+    /// Verify restored settings, not publication of an app-owned icon. An app
+    /// may never republish its host; that must not keep a journal across reboots.
     static func completeRestore() throws {
         guard hasPending else { return }
         let data = try Data(contentsOf: journalURL)
-        let journal = try PropertyListDecoder().decode(Journal.self, from: data)
-        let snapshot = try NativeMenuBarSnapshot.captureUnresolved()
-        guard !snapshot.bars.isEmpty else { throw NativeMenuBarSnapshot.Failure.incomplete }
-        let expected = pendingApplications()
-        let hosted = Set(snapshot.bars.flatMap(\.items).map(\.bundle))
-        guard expected.isSubset(of: hosted) else { throw NativeMenuBarSnapshot.Failure.restorationPending }
+        let journal = try decodedJournal(data)
         let current = try NativeMenuBarPreferences().read()
-        guard journal.previousAllowed.allSatisfy({ current.records[$0.key]?.allowed == $0.value }) else {
+        guard restoredSettingsMatch(journal, current: current) else {
             throw NativeMenuBarPreferences.Failure.concurrentChange
+        }
+        for change in journal.systemChanges ?? [] {
+            let value = try NativeSystemMenuBarPreferences.read(change.setting)
+            // User changes supersede our hidden value, as in restore().
+            guard value != change.setting.hiddenValue || value == change.original else {
+                throw NativeSystemMenuBarPreferences.Failure.write
+            }
         }
         guard try Data(contentsOf: journalURL) == data else { throw NativeMenuBarPreferences.Failure.concurrentChange }
         try FileManager.default.removeItem(at: journalURL)
     }
 
+    static func restoredSettingsMatch(_ journal: Journal, current: NativeMenuBarPreferences.Document) -> Bool {
+        journal.previousAllowed.allSatisfy { key, value in
+            // macOS can remove a record when an app is uninstalled or re-registered.
+            // Do not resurrect that obsolete record, or wait for it indefinitely.
+            current.records[key].map { $0.allowed == value } ?? true
+        }
+    }
+
+    /// Restore excluded owners first, while the full original journal still
+    /// protects against a crash. Then atomically narrow the recovery transaction.
+    static func retain(_ snapshot: NativeMenuBarSnapshot, _ plan: MenuBarSectionPlanner.Plan) throws {
+        guard hasPending else { return }
+        let journalData = try Data(contentsOf: journalURL)
+        let journal = try decodedJournal(journalData)
+        let preferences = try NativeMenuBarPreferences()
+        let current = try preferences.read()
+        let original = try NativeMenuBarPreferences.decode(restorationData(journal, current: current))
+        let keys = try NativeMenuBarPreferences.controlKeys(for: plan.applicationKeys,
+            visible: Set(snapshot.bars.flatMap(\.items).map(\.bundle)), executables: snapshot.executables, in: original)
+        let released = journal.previousAllowed.filter { !keys.contains($0.key) && current.records[$0.key] != nil }
+        let restored = try NativeMenuBarPreferences.changing(current, allowed: released)
+        try preferences.write(restored, replacing: current.data)
+        try NativeSystemMenuBarPreferences.restore((journal.systemChanges ?? []).filter { !plan.systemItemIDs.contains($0.setting.itemID) })
+        let remaining = try retaining(journal, keys: keys, systemItems: plan.systemItemIDs, applications: plan.applicationKeys)
+        guard try Data(contentsOf: journalURL) == journalData else { throw NativeMenuBarPreferences.Failure.concurrentChange }
+        if let remaining {
+            try PropertyListEncoder().encode(remaining).write(to: journalURL, options: .atomic)
+        } else { try FileManager.default.removeItem(at: journalURL) }
+    }
+
+    static func retaining(_ journal: Journal, keys: Set<String>, systemItems: Set<String>,
+                         applications: Set<String>) throws -> Journal? {
+        let original = try NativeMenuBarPreferences.decode(journal.original)
+        // Validate before rebuilding; never turn a corrupt record into a valid one.
+        _ = try restorationData(journal, current: original)
+        guard keys.isSubset(of: Set(journal.previousAllowed.keys)) else { throw NativeMenuBarPreferences.Failure.schema }
+        let previous = journal.previousAllowed.filter { keys.contains($0.key) }
+        let systems = (journal.systemChanges ?? []).filter { systemItems.contains($0.setting.itemID) }
+        if previous.isEmpty && systems.isEmpty { return nil }
+        let added = (journal.addedSelfLocations ?? []).intersection(keys)
+        let written = try NativeMenuBarPreferences.changing(original,
+            allowed: previous.mapValues { _ in false }, includingSelfLocations: added)
+        return Journal(original: original.data, written: written, previousAllowed: previous,
+            addedSelfLocations: added, systemChanges: systems, applications: applications, transactionID: journal.transactionID)
+    }
+
     static func pendingApplications() -> Set<String> {
         guard let data = try? Data(contentsOf: journalURL),
-              let journal = try? PropertyListDecoder().decode(Journal.self, from: data) else { return [] }
+              let journal = try? decodedJournal(data) else { return [] }
         let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         if let applications = journal.applications { return applications.intersection(running) }
         // Older journals have preference owners rather than live helper identities.
@@ -68,7 +134,7 @@ enum NativeMenuBarRecovery {
     }
 
     static func reapply() throws {
-        let journal = try PropertyListDecoder().decode(Journal.self, from: Data(contentsOf: journalURL))
+        let journal = try decodedJournal(Data(contentsOf: journalURL))
         let preferences = try NativeMenuBarPreferences()
         let current = try preferences.read()
         let data = try reapplicationData(journal, current: current)
@@ -81,7 +147,7 @@ enum NativeMenuBarRecovery {
     static func stageExtension(applications: Set<String>, systemItems: Set<String>,
                                snapshot: NativeMenuBarSnapshot) throws {
         let previousData = try Data(contentsOf: journalURL)
-        let journal = try PropertyListDecoder().decode(Journal.self, from: previousData)
+        let journal = try decodedJournal(previousData)
         let preferences = try NativeMenuBarPreferences()
         let current = try preferences.read()
         let extended = try extending(journal, current: current, applications: applications,
@@ -117,7 +183,7 @@ enum NativeMenuBarRecovery {
     }
 
     static func temporarilyReveal(_ bundle: String, snapshot: NativeMenuBarSnapshot) throws {
-        let journal = try PropertyListDecoder().decode(Journal.self, from: Data(contentsOf: journalURL))
+        let journal = try decodedJournal(Data(contentsOf: journalURL))
         let preferences = try NativeMenuBarPreferences()
         let current = try preferences.read()
         let data = try temporaryRevealData(journal, current: current, bundle: bundle,
@@ -194,8 +260,9 @@ enum NativeMenuBarRecovery {
             return try NativeMenuBarPreferences.changing(original, allowed: journal.previousAllowed,
                                                          includingSelfLocations: added)
         }
-        return try NativeMenuBarPreferences.changing(current, allowed: journal.previousAllowed,
-                                                     includingSelfLocations: added)
+        let surviving = journal.previousAllowed.filter { current.records[$0.key] != nil }
+        return try NativeMenuBarPreferences.changing(current, allowed: surviving,
+                                                     includingSelfLocations: added.intersection(Set(surviving.keys)))
     }
 
     /// A copy of this signed executable waits for the parent's pipe to close.
@@ -210,8 +277,8 @@ enum NativeMenuBarRecovery {
             do { try NativeMenuBarPlacement.restore() }
             catch { placementError = error }
             try restore()
-            // Exit recovery has no controller left to observe publication. Keep
-            // the journal on timeout so the next launch can continue recovery.
+            // Retry settings verification; an app's delayed host publication
+            // must not keep a successfully restored journal across restarts.
             for attempt in 0..<20 {
                 do { try completeRestore(); break }
                 catch {
