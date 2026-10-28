@@ -5,5 +5,5 @@
     "--repository", "{repository}", "--tag", "{tag}",
     "--output", "{output}"
   ],
-  "extra_assets": ["appcast.xml", "MenuBox-1.5.7-source.tar.gz"]
+  "extra_assets": ["appcast.xml", "MenuBox-1.5.8-source.tar.gz"]
 }

@@ -35,6 +35,7 @@ final class BoxWindowController: NSObject {
     private var hidingNoticeIdentifier: String?
     var onForwardedClick: ((MenuBarProxyClick, CGMouseButton) -> Void)?
     var onClose: (() -> Void)?
+    var onMenuInteractionStarted: (() -> Void)?
     var onMenuInteractionEnded: (() -> Void)?
     private(set) var isMenuInteractionActive = false
 
@@ -53,8 +54,12 @@ final class BoxWindowController: NSObject {
         return CGDisplayBounds(number.uint32Value)
     }
 
+    var interactionFrame: NSRect? { hidingError == nil && isShowing ? panel?.frame : nil }
+
     func beginMenuInteraction() {
+        let wasActive = isMenuInteractionActive
         isMenuInteractionActive = true
+        if !wasActive { onMenuInteractionStarted?() }
         suppressDismissUntil = .distantFuture
     }
 
@@ -305,6 +310,8 @@ final class BoxWindowController: NSObject {
         selection: @escaping (MenuBarProxyMenuSelection) -> Void
     ) {
         guard let panel, let contentView = panel.contentView else { return }
+        beginMenuInteraction()
+        defer { endMenuInteraction() }
         let visibleItems = trimmedMenuItems(items)
         guard visibleItems.contains(where: { !$0.isSeparator }) else { return }
 

@@ -100,7 +100,21 @@ final class MenuBoxController: NSObject {
     private var markerFrame: NSRect? {
         markerPresentation?.isHidden == true ? markerPresentation?.expandedFrame : tapeItem?.button?.window?.frame
     }
-    private var autoHideTimer: Timer?
+    private var isWorkspaceSuspended = false
+    private var autoHideConfiguration: (enabled: Bool, delay: TimeInterval)?
+    private lazy var autoHideScheduler = AutoHideScheduler(canHide: { [weak self] in
+        guard let self else { return false }
+        self.menuBarInteractions.refresh()
+        return !self.isStopping && !self.isWorkspaceSuspended &&
+            (!self.usesNativeHiding || !self.nativeHiding.isRestoring)
+    }, hide: { [weak self] in self?.hideHiddenIcons() })
+    private lazy var menuBarInteractions: MenuBarInteractionMonitor = {
+        let monitor = MenuBarInteractionMonitor()
+        monitor.targetAtPoint = { [weak self] in self?.directInteractionTarget(at: $0) }
+        monitor.boxFrame = { [weak self] in self?.boxWindowController.interactionFrame }
+        monitor.onChange = { [weak self] in self?.autoHideScheduler.setInteraction("pointer-and-popup", active: $0) }
+        return monitor
+    }()
     private var captureTask: Task<Void, Never>?
     private var hiddenMenuTask: Task<Void, Never>?
     private var pendingMenuPlacementRestore: (token: UUID, target: MenuBarProxyTarget, display: CGRect)?
@@ -180,7 +194,11 @@ final class MenuBoxController: NSObject {
         boxWindowController.onClose = { [weak self] in
             self?.hiddenMenuTask?.cancel()
         }
+        boxWindowController.onMenuInteractionStarted = { [weak self] in
+            self?.autoHideScheduler.setInteraction("box-menu", active: true)
+        }
         boxWindowController.onMenuInteractionEnded = { [weak self] in
+            self?.autoHideScheduler.setInteraction("box-menu", active: false)
             Task { @MainActor [weak self] in
                 await self?.waitForMenuPlacementRestoration()
                 self?.renderCachedProxyTargetsIfBoxVisible()
@@ -204,12 +222,15 @@ final class MenuBoxController: NSObject {
         configureMainStatusItem()
         configureTapeStatusItem()
         installKeyboardShortcuts()
+        menuBarInteractions.start()
+        updateAutoHideSettings()
 
         settingsCancellable = store.$settings
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.refreshKeyboardShortcuts()
+                self?.updateAutoHideSettings()
             }
 
         // Setup has finished or was deferred after agreement; features may now start.
@@ -267,8 +288,8 @@ final class MenuBoxController: NSObject {
                 self.hideWhenPermissionsReady = true
             }
             self.hiddenMenuTask?.cancel()
-            self.autoHideTimer?.invalidate()
-            self.autoHideTimer = nil
+            self.autoHideScheduler.cancel()
+            self.menuBarInteractions.setEnabled(false)
             self.boxWindowController.close()
             if !self.suppressInitialPermissionSetup, self.onboarding?.isVisible != true {
                 self.openSettings(tab: .permissions)
@@ -276,6 +297,7 @@ final class MenuBoxController: NSObject {
         }
         permissions.onAccessRestored = { [weak self] in
             guard let self else { return }
+            self.menuBarInteractions.setEnabled(self.store.settings.autoHideEnabled && !self.isWorkspaceSuspended)
             self.startProxyTargetCacheWarmup()
             if self.hideWhenPermissionsReady { self.hideHiddenIcons() }
         }
@@ -411,8 +433,8 @@ final class MenuBoxController: NSObject {
     }
 
     private func revealHiddenIcons() {
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
+        autoHideScheduler.cancel()
+        menuBarInteractions.reset()
         captureTask?.cancel()
         captureTask = nil
         boxWindowController.close()
@@ -432,8 +454,8 @@ final class MenuBoxController: NSObject {
 
     private func hideHiddenIcons() {
         lastHidingNoticeID = nil
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
+        autoHideScheduler.cancel()
+        menuBarInteractions.reset()
         captureTask?.cancel()
         captureTask = nil
         boxWindowController.close()
@@ -469,6 +491,8 @@ final class MenuBoxController: NSObject {
     func stop() {
         guard didStart else { return }
         isStopping = true
+        autoHideScheduler.cancel()
+        menuBarInteractions.stop()
         hiddenMenuTask?.cancel()
         try? NativeMenuBarPlacement.restore()
         proxyTargetScanTask?.cancel()
@@ -477,23 +501,39 @@ final class MenuBoxController: NSObject {
         proxyTargetRefreshWorkItems.forEach { $0.cancel() }
         permissions.stop()
         if usesNativeHiding { nativeHiding.stop() }
-        autoHideTimer?.invalidate()
         tapeItem?.length = StatusItemLength.shown
     }
 
-    private func scheduleAutoHideIfNeeded(minimumDelay: TimeInterval = 0) {
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
+    private func scheduleAutoHideIfNeeded() {
+        guard !isStopping, !isWorkspaceSuspended,
+              (MenuBarHidingCompatibility.supportsSpacer || usesNativeHiding),
+              store.settings.autoHideEnabled else { autoHideScheduler.cancel(); return }
+        autoHideScheduler.arm(after: store.settings.autoHideDelaySeconds)
+    }
 
-        guard (MenuBarHidingCompatibility.supportsSpacer || usesNativeHiding), store.settings.autoHideEnabled else { return }
+    private func updateAutoHideSettings() {
+        let enabled = store.settings.autoHideEnabled, delay = store.settings.autoHideDelaySeconds
+        guard autoHideConfiguration?.enabled != enabled || autoHideConfiguration?.delay != delay else { return }
+        autoHideConfiguration = (enabled, delay)
+        menuBarInteractions.setEnabled(enabled && !isWorkspaceSuspended && ClickForwarder.accessibilityTrusted)
+        if enabled, !isHidden || boxWindowController.isShowing { scheduleAutoHideIfNeeded() }
+        else { autoHideScheduler.cancel() }
+    }
 
-        let delay = max(store.settings.autoHideDelaySeconds, minimumDelay)
-        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
-            guard let self, !self.usesNativeHiding || !self.nativeHiding.isRestoring else { return }
-            self.hideHiddenIcons()
-        }
-        autoHideTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+    private func directInteractionTarget(at point: NSPoint) -> MenuBarProxyTarget? {
+        guard !isHidden || boxWindowController.isShowing,
+              let screen = MenuBarGeometry.screen(containing: point),
+              let target = MenuBarProxyScanner.statusItem(at: point, in: MenuBarGeometry.menuBarRect(for: screen)),
+              target.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
+        // The inventory contains the revealed section's owners. Limit direct
+        // observation to those apps and shared menu-bar hosts, not arbitrary
+        // desktop controls or the user's general application windows.
+        guard cachedProxyTargets.contains(where: { $0.bundleIdentifier == target.bundleIdentifier }) ||
+            NativeMenuBarPreferences.sharedSystemHosts.contains(target.bundleIdentifier) ||
+            MenuBarProxyScanner.belongsToExtrasMenuBar(target) ||
+            (usesNativeHiding && StatusItemEventRouter.visibleHostDestination(for: target,
+                on: MenuBarGeometry.cgDisplayBounds(for: screen)) != nil) else { return nil }
+        return target
     }
 
     private func installKeyboardShortcuts() {
@@ -788,8 +828,7 @@ final class MenuBoxController: NSObject {
             return
         }
 
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
+        autoHideScheduler.cancel()
         captureTask?.cancel()
 
         let cachedTargets = cachedProxyTargets(before: tapeFrame)
@@ -1057,7 +1096,7 @@ final class MenuBoxController: NSObject {
         case .left:
             guard let target = click.target else {
                 boxWindowController.showStatus(menuBoxLocalized("No icon was selected. Please try again."))
-                scheduleAutoHideIfNeeded(minimumDelay: 15)
+                scheduleAutoHideIfNeeded()
                 return
             }
             activateTargetApplication(target)
@@ -1069,18 +1108,19 @@ final class MenuBoxController: NSObject {
     }
 
     private func forwardClickToMenuBar(click: MenuBarProxyClick, button: CGMouseButton) {
+        if let target = click.target { menuBarInteractions.observe(target) }
         guard ClickForwarder.accessibilityTrusted else {
             permissions.refresh()
             openSettings(tab: .permissions)
             return
         }
 
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
+        autoHideScheduler.cancel()
 
         if usesNativeHiding || !click.revealBeforeForwarding {
             guard let target = click.target else {
                 boxWindowController.showStatus(menuBoxLocalized("No icon was selected. Please try again."))
+                scheduleAutoHideIfNeeded()
                 return
             }
 
@@ -1112,7 +1152,7 @@ final class MenuBoxController: NSObject {
             }
 
             let resolvedTarget = target
-            let forwardResult = await MainActor.run {
+            _ = await MainActor.run {
                 let targetForClick = resolvedTarget ?? self.visibleFallbackTarget(for: click)
                 let point = targetForClick?.appKitClickPoint ?? click.appKitPoint
                 guard self.isVisibleMenuBarPoint(point) else {
@@ -1122,6 +1162,7 @@ final class MenuBoxController: NSObject {
                 }
 
                 if let targetForClick {
+                    self.menuBarInteractions.observe(targetForClick)
                     NSLog("[MenuBox] Forwarding native proxy click to target role=%@ title=%@ description=%@ point=%@", targetForClick.role, targetForClick.title, targetForClick.description, NSStringFromPoint(point))
                 } else {
                     NSLog("[MenuBox] Forwarding native proxy click without AX target point=%@", NSStringFromPoint(point))
@@ -1134,18 +1175,14 @@ final class MenuBoxController: NSObject {
             }
 
             await MainActor.run {
-                if forwardResult.didForward {
-                    self.scheduleAutoHideIfNeeded(minimumDelay: 10)
-                } else {
-                    self.scheduleAutoHideIfNeeded(minimumDelay: 30)
-                }
+                self.scheduleAutoHideIfNeeded()
             }
         }
     }
 
     private func openHiddenStatusItemMenu(for target: MenuBarProxyTarget, anchorPoint: NSPoint?) {
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
+        menuBarInteractions.observe(target)
+        autoHideScheduler.cancel()
         let previous = hiddenMenuTask
         previous?.cancel()
         boxWindowController.beginMenuInteraction()
@@ -1156,6 +1193,9 @@ final class MenuBoxController: NSObject {
             await self.waitForMenuPlacementRestoration()
             guard !Task.isCancelled else { return }
             self.boxWindowController.beginMenuInteraction()
+            defer {
+                if !Task.isCancelled { self.scheduleAutoHideIfNeeded() }
+            }
             guard let liveTarget = MenuBarProxyScanner.refreshedStatusItemTarget(from: target) else {
                 self.boxWindowController.showUnavailableMenu(for: target, anchorPoint: anchorPoint)
                 self.boxWindowController.endMenuInteraction()
@@ -1170,7 +1210,7 @@ final class MenuBoxController: NSObject {
                     self.nativeHiding.recordMenuInteraction("native presentation ended: \(liveTarget.bundleIdentifier)")
                     if !Task.isCancelled {
                         self.boxWindowController.endMenuInteraction()
-                        self.scheduleAutoHideIfNeeded(minimumDelay: 15)
+                        self.scheduleAutoHideIfNeeded()
                     }
                     return
                 }
@@ -1194,7 +1234,7 @@ final class MenuBoxController: NSObject {
             }
             if !Task.isCancelled {
                 self.boxWindowController.endMenuInteraction()
-                self.scheduleAutoHideIfNeeded(minimumDelay: 15)
+                self.scheduleAutoHideIfNeeded()
             }
         }
     }
@@ -1330,14 +1370,14 @@ final class MenuBoxController: NSObject {
             guard let currentTarget = MenuBarProxyScanner.refreshedStatusItemTarget(from: target),
                   let opened = await self.requestHiddenStatusItemMenu(for: currentTarget) else {
                 self.boxWindowController.showStatus(String(format: menuBoxLocalized("Menu unavailable: %@"), target.displayName))
-                self.scheduleAutoHideIfNeeded(minimumDelay: 15)
+                self.scheduleAutoHideIfNeeded()
                 return
             }
             defer { opened.cancel() }
             guard !Task.isCancelled else { return }
             guard let item = MenuBarProxyScanner.currentMenuItem(matching: selection, in: opened.items) else {
                 self.boxWindowController.showStatus(menuBoxLocalized("Menu changed: Open it again"))
-                self.scheduleAutoHideIfNeeded(minimumDelay: 15)
+                self.scheduleAutoHideIfNeeded()
                 return
             }
             let result = ClickForwarder.performProxyMenuItem(item)
@@ -1348,17 +1388,17 @@ final class MenuBoxController: NSObject {
             if result.didForward, self.isQuitMenuSelection(selection) {
                 self.removeProxyTargets(processIdentifier: target.processIdentifier)
             }
-            self.scheduleAutoHideIfNeeded(minimumDelay: 15)
+            self.scheduleAutoHideIfNeeded()
         }
     }
 
     private func activateTargetApplication(_ target: MenuBarProxyTarget) {
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
+        menuBarInteractions.observe(target)
+        autoHideScheduler.cancel()
 
         guard let app = runningApplication(for: target) else {
             boxWindowController.showStatus(String(format: menuBoxLocalized("Unsupported app: %@"), target.displayName))
-            scheduleAutoHideIfNeeded(minimumDelay: 15)
+            scheduleAutoHideIfNeeded()
             return
         }
 
@@ -1376,13 +1416,13 @@ final class MenuBoxController: NSObject {
         let windowActivation = raiseApplicationWindows(processIdentifier: app.processIdentifier)
         if windowActivation.didRaiseWindow {
             boxWindowController.close()
-            scheduleAutoHideIfNeeded(minimumDelay: 10)
+            scheduleAutoHideIfNeeded()
             return
         }
 
         if windowActivation.hasWindows {
             boxWindowController.close()
-            scheduleAutoHideIfNeeded(minimumDelay: 10)
+            scheduleAutoHideIfNeeded()
             return
         }
 
@@ -1481,7 +1521,7 @@ final class MenuBoxController: NSObject {
             let windowActivation = self.raiseApplicationWindows(processIdentifier: app.processIdentifier)
             if windowActivation.hasWindows || windowActivation.didRaiseWindow {
                 self.boxWindowController.close()
-                self.scheduleAutoHideIfNeeded(minimumDelay: 10)
+                self.scheduleAutoHideIfNeeded()
                 return
             }
 
@@ -1495,7 +1535,7 @@ final class MenuBoxController: NSObject {
 
     private func markTargetApplicationUnsupported(_ target: MenuBarProxyTarget) {
         boxWindowController.showStatus(String(format: menuBoxLocalized("Unsupported app: %@"), target.displayName))
-        scheduleAutoHideIfNeeded(minimumDelay: 30)
+        scheduleAutoHideIfNeeded()
     }
 
     private func showProxyMenuIfAvailable(
@@ -1518,13 +1558,9 @@ final class MenuBoxController: NSObject {
             if result.didForward, self.isQuitMenuSelection(selection) {
                 self.removeProxyTargets(processIdentifier: target.processIdentifier)
             }
-            if result.didForward {
-                self.scheduleAutoHideIfNeeded(minimumDelay: 10)
-            } else {
-                self.scheduleAutoHideIfNeeded(minimumDelay: 30)
-            }
+            self.scheduleAutoHideIfNeeded()
         }
-        scheduleAutoHideIfNeeded(minimumDelay: 10)
+        scheduleAutoHideIfNeeded()
         return true
     }
 
@@ -1619,19 +1655,23 @@ final class MenuBoxController: NSObject {
     }
 
     @objc private func workspaceWillSleep(_ notification: Notification) {
+        isWorkspaceSuspended = true
+        autoHideScheduler.cancel()
+        menuBarInteractions.setEnabled(false)
         guard usesNativeHiding else { return }
         replicaRecovery.resetObservation()
         hiddenMenuTask?.cancel()
         try? NativeMenuBarPlacement.restore()
-        autoHideTimer?.invalidate()
-        autoHideTimer = nil
         nativeHiding.suspend()
     }
 
     @objc private func workspaceDidWake(_ notification: Notification) {
+        isWorkspaceSuspended = false
+        menuBarInteractions.setEnabled(store.settings.autoHideEnabled && ClickForwarder.accessibilityTrusted)
         replicaRecovery.resetObservation()
         if usesNativeHiding { nativeHiding.resume(reason: notification.name.rawValue) }
         else if isHidden { hideHiddenIcons() }
+        if !isHidden || boxWindowController.isShowing { scheduleAutoHideIfNeeded() }
         scheduleProxyTargetCacheRefreshes(delays: ProxyTargetCacheTiming.environmentRefreshDelays)
     }
 

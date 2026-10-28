@@ -213,6 +213,53 @@ enum MenuBarProxyScanner {
                                                   bundle: { $0.bundleIdentifier }).values)
     }
 
+    /// A single hit test for an actual user click; avoid scanning every icon
+    /// or reading menu contents just to decide whether auto-hide should pause.
+    static func statusItem(at point: NSPoint, in menuBar: NSRect) -> MenuBarProxyTarget? {
+        guard ClickForwarder.accessibilityTrusted, menuBar.contains(point) else { return nil }
+        let quartz = MenuBarGeometry.quartzPoint(fromAppKitPoint: point)
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.1)
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(system, Float(quartz.x), Float(quartz.y), &hit) == .success,
+              let hit else { return nil }
+        for element in elementChain(startingAt: hit) {
+            if let candidate = target(from: element, in: menuBar), candidate.appKitFrame.contains(point) {
+                return candidate
+            }
+        }
+        return nil
+    }
+
+    static func belongsToExtrasMenuBar(_ target: MenuBarProxyTarget) -> Bool {
+        let app = AXUIElementCreateApplication(target.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 0.1)
+        let extras = accessibilityElements(attribute: kAXExtrasMenuBarAttribute, from: app)
+        let ancestors = elementChain(startingAt: target.accessibilityElement)
+        return extras.contains { bar in ancestors.contains { CFEqual(bar, $0) } }
+    }
+
+    /// Read only roles and bounds of popup roots. Attached menus with stale
+    /// frames must still be matched against a currently visible window.
+    static func statusPopupFrames(for target: MenuBarProxyTarget, additionalRoots: [AXUIElement]) -> [CGRect] {
+        let app = AXUIElementCreateApplication(target.processIdentifier)
+        AXUIElementSetMessagingTimeout(app, 0.1)
+        var roots = directMenuRoots(for: target) + additionalRoots
+        roots += accessibilityElements(attribute: kAXWindowsAttribute, from: app)
+        for focus in accessibilityElements(attribute: kAXFocusedUIElementAttribute, from: app) {
+            roots += elementChain(startingAt: focus)
+        }
+        return uniqueElements(roots).compactMap { element in
+            AXUIElementSetMessagingTimeout(element, 0.1)
+            let role = stringAttribute(kAXRoleAttribute, from: element)
+            let subrole = stringAttribute(kAXSubroleAttribute, from: element)
+            guard role == "AXMenu" || role == "AXPopover" || (role == "AXWindow" && subrole == "AXSystemDialog"),
+                  let point = cgPointAttribute(kAXPositionAttribute, from: element),
+                  let size = cgSizeAttribute(kAXSizeAttribute, from: element) else { return nil }
+            return CGRect(origin: point, size: size)
+        }
+    }
+
     static func targets(in appKitRect: NSRect) -> [MenuBarProxyTarget] {
         guard ClickForwarder.accessibilityTrusted, appKitRect.width > 0, appKitRect.height > 0 else {
             return []

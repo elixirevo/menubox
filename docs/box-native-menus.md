@@ -22,6 +22,16 @@ Menus that are offscreen or anchored away from Box retain the proxy path: MenuBo
 
 A posted click is observed for up to 1.5 seconds before falling back to attached contents, so an intermediate attached menu cannot win a race with a dispatched rebuild. The initial no-input read uses the live AX tree, not a stored snapshot. Apps that only refresh menu contents in their opening delegate may expose their last prepared state until opened; there is no claim that reading AX runs every app's menu-generation code. A failed request is described as inability to open this app's menu, rather than proof that the app has no menu. Successful event posting alone is not considered menu support. Diagnostics distinguish a missing event route, a missing explicit menu action, and a popup observation timeout.
 
+## Interaction-aware auto-hide (2026-10-28)
+
+Direct menu-bar clicks/drags and Box menu sessions share one auto-hide countdown. A press suspends it; an app-owned menu or popover keeps it suspended after mouse-up, including while the pointer is outside the popup. When the last interaction ends, the full configured delay starts again. The former 10/15/30-second minimum delays are removed. Ordinary application windows do not hold the countdown.
+
+Mouse observation identifies the clicked status item with one Accessibility hit test. During that interaction only, menu notifications and a 150 ms window-visibility poll track dismissal; a short opening grace period covers asynchronous popup creation. The observer reads popup roles and bounds, without requesting menu actions or reading keyboard input. Low-layer custom popovers require a matching Accessibility popup frame. Apps that expose neither a recognizable popup window nor an Accessibility popup remain a compatibility limitation.
+
+Explicit hide, disabling auto-hide, permission loss, shutdown and sleep cancel the pending countdown. A stale callback cannot hide a newly interacting section. Changes to the configured delay apply when the active interaction ends; inventory refreshes do not reset it.
+
+Verification: 251 XCTest cases ran, with 249 passing and two existing opt-in live tests skipped. Added checks cover full-delay restart, overlapping interactions, deadline clicks, setting changes, cancellation, restoration, popup ownership, Box callbacks, and an actual test popup window remaining open then disappearing. The signed ARM64 build passes strict signature validation and runs from `dist/MenuBox.app`. Third-party menu clicks could not be verified end-to-end because the computer-use tool failed to route clicks to the shared menu-bar host.
+
 ## macOS 27 regression and remaining limitation (2026-09-16)
 
 The previous macOS 27 branch bypassed `StatusItemEventRouter` entirely: it read attached menus and required an advertised `AXShowMenu` when no menu was attached. This regressed apps that only build or attach a menu in `rightMouseUp`. Both OS paths now use the same request sequence, including reacquisition before command execution.

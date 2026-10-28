@@ -106,7 +106,7 @@ enum MenuBarGeometry {
         } ?? NSScreen.main
     }
 
-    private static func cgDisplayBounds(for screen: NSScreen) -> CGRect? {
+    static func cgDisplayBounds(for screen: NSScreen) -> CGRect? {
         guard let displayNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
             return nil
         }
